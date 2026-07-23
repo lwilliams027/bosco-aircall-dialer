@@ -126,6 +126,17 @@ button:active{filter:brightness(1.22)}
 .hold-btn.act{background:#7BBF43;color:#08320f;border-color:#7BBF43}
 .nc-btn{padding:14px;font-size:14px;background:#22303c;color:#cfe1ef;border:1px solid #33475a;border-radius:14px}
 
+/* view buttons + sections */
+.viewbtns{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:12px}
+.vb{padding:11px 4px;font-size:12.5px;font-weight:700;background:#22303c;color:#cfe1ef;border:1px solid #33475a;border-radius:10px}
+.vb.on{background:var(--blue);color:#fff;border-color:var(--blue)}
+.vsec{margin-top:10px;background:#0f1720;border:1px solid #2a4056;border-radius:10px;padding:10px;max-height:260px;overflow:auto}
+.note{padding:6px 0;border-bottom:1px solid #22303c;font-size:13px} .note:last-child{border-bottom:0}
+.note .nl{color:#8fc7e8;font-size:11px;font-weight:700;margin-bottom:2px}
+.svcrow{padding:4px 0;font-size:13px;color:#cfe1ef}
+.condhdr{color:#ff9b9b;font-weight:700;font-size:12px;margin:8px 0 4px}
+.empty{color:var(--dim)}
+
 /* queue */
 .qhead{display:flex;align-items:center;justify-content:space-between;margin:18px 4px 8px}
 .qhead .t{font-size:13px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:#8fc7e8}
@@ -167,9 +178,13 @@ li.cur{border-color:var(--blue);background:#16324a}
     <div class="cname" id="cnm"></div>
     <div class="cphone" id="cph"></div>
     <div class="cmeta" id="cmeta"></div>
-    <div class="cissue" id="ciss" style="display:none"></div>
-    <div class="ctreat" id="csvc"></div>
-    <div class="craw" id="craw" style="display:none"></div>
+    <div class="viewbtns">
+      <button class="vb" id="vbn" onclick="toggleView('vnotes')">View Notes</button>
+      <button class="vb" id="vbt" onclick="toggleView('vtreat')">Treatments</button>
+      <button class="vb" onclick="openPrice()">Price Chart</button>
+    </div>
+    <div class="vsec" id="vnotes" style="display:none"></div>
+    <div class="vsec" id="vtreat" style="display:none"></div>
   </div>
   <div class="noneu" id="none">Not on a call. Tap START.</div>
 
@@ -209,6 +224,14 @@ function openPrice(){document.getElementById('ps').classList.add('open');}
 function closePrice(){document.getElementById('ps').classList.remove('open');}
 var answered=false;
 function act2(){ if(answered){cmd('resolve');}else{cmd('down');} }
+var openView='';
+function toggleView(id){
+ openView=(openView===id)?'':id;
+ document.getElementById('vnotes').style.display=(openView==='vnotes')?'':'none';
+ document.getElementById('vtreat').style.display=(openView==='vtreat')?'':'none';
+ document.getElementById('vbn').className='vb'+(openView==='vnotes'?' on':'');
+ document.getElementById('vbt').className='vb'+(openView==='vtreat'?' on':'');
+}
 
 var lastPricedAcct='';
 var SVCS={'Lawn Care':[
@@ -265,12 +288,14 @@ function tick(){
    var b1=document.getElementById('b1'),b2=document.getElementById('b2');
    if(answered){b1.innerHTML='&#10142; GO NEXT';b1.className='big up';b2.innerHTML='&#10003; RESOLVE';b2.className='big resolve';}
    else{b1.innerHTML='&#9650; ANSWERED';b1.className='big up';b2.innerHTML='&#9660; NO ANSWER';b2.className='big down';}
-   document.getElementById('cnm').textContent=c.name||'';
+   var iss=(c.issue&&c.issue!=='none')?(' - '+c.issue.toUpperCase()):'';
+   document.getElementById('cnm').textContent=(c.name||'')+iss+(c.size?(' '+c.size+'k'):'');
    document.getElementById('cph').textContent=c.phone||'';
-   document.getElementById('cmeta').textContent=(c.type==='tech'?'Tech Note':'CXL')+(c.size?(' - '+c.size+'k sqft'):'')+' - '+(c.notes||0)+' note'+((c.notes===1)?'':'s')+' - acct '+(c.acct||'');
-   var ci=document.getElementById('ciss');if(c.issue&&c.issue!=='none'){ci.style.display='';ci.textContent=c.issue;}else{ci.style.display='none';}
-   document.getElementById('csvc').innerHTML=(c.services&&c.services.length)?c.services.map(function(x){return '<span class="tchip">'+esc(x)+'</span>';}).join(''):'';
-   var cr=document.getElementById('craw');if((!c.issue||c.issue==='none')&&c.raw){cr.style.display='';cr.innerHTML='<div class="rl">No auto-detected concern &mdash; conditions found (read for sod etc.):</div>'+esc(c.raw);}else{cr.style.display='none';}
+   document.getElementById('cmeta').textContent=(c.type==='tech'?'Tech Note':'CXL')+' - '+(c.notes||0)+' note'+((c.notes===1)?'':'s')+' - acct '+(c.acct||'');
+   document.getElementById('vnotes').innerHTML=(c.notesList&&c.notesList.length)?c.notesList.map(function(n){return '<div class="note"><div class="nl">'+esc(n.when||'')+(n.who?(' - '+esc(n.who)):'')+'</div>'+esc(n.text||'')+'</div>';}).join(''):'<div class="empty">No notes on file.</div>';
+   var th=(c.services&&c.services.length)?c.services.map(function(x){return '<div class="svcrow">'+esc(x)+'</div>';}).join(''):'<div class="empty">No programs found.</div>';
+   if(c.raw){th+='<div class="condhdr">Observed conditions</div>'+esc(c.raw);}
+   document.getElementById('vtreat').innerHTML=th;
    if(c.size&&String(c.acct)!==lastPricedAcct&&document.activeElement!==document.getElementById('psize')){lastPricedAcct=String(c.acct);document.getElementById('psize').value=c.size;renderPrices();}
   } else { box.classList.add('hide');none.style.display='';answered=false;
    var b1=document.getElementById('b1'),b2=document.getElementById('b2');
@@ -338,7 +363,7 @@ while ($ws.State -eq 'Open') {
       elseif ($path -eq '/config') { if ($ctx.Request.HttpMethod -eq 'POST') { $script:config = $body; Write-Host "config saved" -ForegroundColor Cyan } else { $out = $script:config; $ctype = 'application/json' } }
       elseif ($path -eq '/dial') { $b = $body.Trim(); if ($b -match '^\+1\d{10}$') { Dial $b; Write-Host "dial $b" -ForegroundColor Cyan } }
       elseif ($path -eq '/hangup') { HangUp; Write-Host "hangup" -ForegroundColor Magenta }
-      elseif ($path -eq '/newconv') { NewConv; Start-Sleep -Milliseconds 350; NewConv; Write-Host "new conv (Alt+N x2)" -ForegroundColor Cyan }
+      elseif ($path -eq '/newconv') { NewConv; Write-Host "new conv (Alt+N)" -ForegroundColor Cyan }
       elseif ($path -eq '/text') { try { $o = $body | ConvertFrom-Json; if ($o.number -match '^\+1\d{10}$') { $out = (SendText $o.number $o.message) } else { $out = 'bad number' } } catch { $out = 'text error' } }
       $ctx.Response.Headers.Add('Access-Control-Allow-Origin', '*')
       $ctx.Response.ContentType = $ctype

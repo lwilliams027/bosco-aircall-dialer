@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco - Call Queue + Bridge + Condition Texting
 // @namespace    local.sa.dialer
-// @version      5.0
+// @version      5.1
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sa-find-number.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sa-find-number.user.js
 // @description  Labeled call queue via a local bridge: dial/hangup/text, global Up/Down, Esc pause (hang up)/resume (redial), no-answer condition lookup (clicks through all treatments) + conditional texting.
@@ -98,7 +98,7 @@
 
   // ================= config =================
   const BRIDGE = 'http://127.0.0.1:8123';
-  const SEND_TEXTS = true; // <-- set true to send real texts (false = preview only)
+  const SEND_TEXTS = false; // texting removed for now
   const CALLABLE = [
     { type: 'tech', rank: 0, test: (s) => s.includes('tech note') },
     { type: 'cxl',  rank: 1, test: (s) => s.includes('cxl customer c/b') || (s.includes('cxl') && s.includes('c/b')) },
@@ -143,10 +143,21 @@
   const realNotes = () => Array.from(document.querySelectorAll('div.note.container')).filter((n) => n.id !== 'NewNote' && !n.classList.contains('add-note') && !n.classList.contains('system') && n.offsetParent !== null);
   const noteCount = () => realNotes().length;
   const notesSig = () => realNotes().map((n) => n.id).join(',');
+  function scrapeNotesList() {
+    return realNotes().map((n) => {
+      const who = ((n.querySelector('.assigneeImage [data-original-title]') || {}).getAttribute && n.querySelector('.assigneeImage [data-original-title]').getAttribute('data-original-title')) || ((n.querySelector('.empInitials') || {}).textContent || '').trim();
+      const when = ((n.querySelector('.note-time') || {}).textContent || '').trim();
+      const outcome = ((n.querySelector('.note-topic') || {}).textContent || '').trim();
+      let body = '';
+      n.querySelectorAll('.noteText .col-xs-12').forEach((c) => { if (c.classList.contains('outcome') || c.classList.contains('emailNote')) return; const t = c.textContent.trim(); if (t) body += (body ? ' ' : '') + t; });
+      return { who: who || '', when: when || '', text: (outcome ? outcome + (body ? ': ' + body : '') : body) };
+    });
+  }
   function openLead(row) { (row.querySelector('.stronger') || row.querySelector('.listView') || row).click(); }
   async function waitForLoad(prevSig) { const start = performance.now(); while (performance.now() - start < LOAD_TIMEOUT) { await sleep(120); if (notesSig() !== prevSig) { await sleep(300); return true; } } return false; }
   function leadInfo(row) { const digits = (row.dataset.customerphone || '').replace(/\D/g, ''); return { acct: row.dataset.accountnumber || '', name: row.dataset.customername || '(lead)', phone: fmt(digits), e164: '+1' + digits, row }; }
-  function sortedQueue() { return callQueue.slice().sort((a, b) => { const an = a.noteCount === 1 ? 0 : 1, bn = b.noteCount === 1 ? 0 : 1; if (an !== bn) return an - bn; return CALLABLE.find((c) => c.type === a.type).rank - CALLABLE.find((c) => c.type === b.type).rank; }); }
+  function issueRank(l) { const i = typeof l.issue === 'string' ? l.issue : ''; if (i === 'moles') return 0; if (i === 'sod webworm') return 1; if (i === 'leaf spot' || i === 'dollar spot') return 2; return 3; }
+  function sortedQueue() { return callQueue.slice().sort((a, b) => { const ai = issueRank(a), bi = issueRank(b); if (ai !== bi) return ai - bi; const an = a.noteCount === 1 ? 0 : 1, bn = b.noteCount === 1 ? 0 : 1; if (an !== bn) return an - bn; return CALLABLE.find((c) => c.type === a.type).rank - CALLABLE.find((c) => c.type === b.type).rank; }); }
   const nextUndialed = () => sortedQueue().find((l) => !dialed.has(l.acct));
 
   // ---- persistence: save the queue and reload it on startup instead of re-scanning ----
@@ -243,6 +254,7 @@
     if (!row) { badge(`Couldn't find ${lead.name} in the list — skipping`, '#c0392b'); dialed.add(lead.acct); return startLead(nextUndialed()); }
     const prev = notesSig(); openLead(row); await waitForLoad(prev);
     lead.noteCount = noteCount();   // refresh (notes may have changed since last scan)
+    lead.notesList = scrapeNotesList();   // capture the account's notes for the control page
     row.scrollIntoView({ behavior: 'smooth', block: 'center' });
     bridgeDial(lead.e164); callState = 'ringing'; renderPanel();
     badge(`RINGING ${lead.name} ${lead.phone} [${lead.type.toUpperCase()}] · ${lead.noteCount} note(s)\n▲ = answered   ▼ = no answer`, '#7BBF43');
@@ -275,7 +287,7 @@
   async function onResolve() {
     if (paused || busy || (callState !== 'ringing' && callState !== 'answered')) return;
     busy = true; const lead = currentLead;
-    try { await hangup(); badge(`Resolving ${lead.name}…`, '#f39c12'); await noAnswerMultiNote(); lead.noteCount = noteCount(); }
+    try { await hangup(); badge(`Resolving ${lead.name}…`, '#f39c12'); await addNoteAndSave(`Not interested in ${treatmentName(lead.issue)} - ${todayStr()}`); await resolveStatus(); lead.noteCount = noteCount(); }
     catch (e) { console.error('[resolve]', e); badge('Resolve error — F12', '#c0392b'); }
     busy = false; advance();
   }
@@ -284,23 +296,9 @@
     busy = true; const lead = currentLead;
     try {
       await hangup();
-      if (lead.type === 'tech') {
-        badge(`No answer — checking history for ${lead.name}…`, '#f39c12');
-        let cond;
-        if (typeof lead.issue === 'string' && lead.issue !== 'none') { cond = lead.issue; }
-        else { const r = await lookupCondition(lead.acct); cond = r.condition; lead.issue = cond; lead.size = r.size || ''; lead.services = r.services || []; lead.raw = r.raw || ''; }
-        const first = firstName(lead.name);
-        const tpl = await getTemplates();
-        const mkI = (n) => (tpl.insect ? tpl.insect.replace(/\{name\}/g, n) : insectMsg(n));
-        const mkD = (n) => (tpl.disease ? tpl.disease.replace(/\{name\}/g, n) : diseaseMsg(n));
-        if (cond === 'sod webworm') await sendText(lead, mkI(first), cond);
-        else if (cond === 'leaf spot' || cond === 'dollar spot') await sendText(lead, mkD(first), cond);
-        else badge(`No text (condition: ${cond}). Logging…`, '#f39c12');
-      } else {
-        badge(`No answer (CXL) — no text. Logging…`, '#f39c12');
-      }
       const count = noteCount();
-      if (count <= 1) await noAnswerOneNote(); else await noAnswerMultiNote();
+      if (count <= 1) { badge(`No answer — logging…`, '#f39c12'); await noAnswerOneNote(); }
+      else { badge(`Didn't answer twice — resolving…`, '#f39c12'); await noAnswerMultiNote(); }
       lead.noteCount = noteCount();   // reflect the note we just added
     } catch (e) { console.error('[no-answer]', e); badge('No-answer error — F12', '#c0392b'); }
     busy = false; advance();
@@ -326,23 +324,32 @@
   }
 
   // ---- record edits ----
-  async function noAnswerOneNote() {
+  function treatmentName(issue) {
+    if (issue === 'sod webworm') return 'Surface Insecticide';
+    if (issue === 'leaf spot' || issue === 'dollar spot') return 'Lawn Disease Treatment';
+    if (issue === 'moles') return 'Mole Control';
+    return 'the treatment';
+  }
+  const todayStr = () => { const d = new Date(); return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`; };
+  async function addNoteAndSave(text) {
     if (!openNoteEditor()) { console.warn('[note] editor not opened'); return; }
     await sleep(500); const ta = findNoteTextarea();
-    if (ta) setNative(ta, NO_ANSWER_NOTE); else console.warn('[note] textarea not found');
+    if (ta) setNative(ta, text); else console.warn('[note] textarea not found');
     await selectBlankOutcome();
     const save = document.querySelector('#SaveNewNote'); if (save) save.click(); else console.warn('[note] #SaveNewNote not found');
-    await sleep(900); await setDueNextBusinessDay();
+    await sleep(900);
   }
-  async function noAnswerMultiNote() {
+  async function resolveStatus() {
     const st = document.querySelector('#callStatus'); if (!st) { console.warn('[resolve] #callStatus not found'); return; }
     st.click(); await sleep(450); let done = false;
     const sel = document.querySelector('.editable-container select, .editableform select');
     if (sel) { const opt = Array.from(sel.options).find((o) => /^\s*resolved\s*$/i.test(o.text)); if (opt) { sel.value = opt.value; sel.dispatchEvent(new Event('change', { bubbles: true })); done = true; } }
     if (!done) { const a = Array.from(document.querySelectorAll('.editable-container .dropdown-menu li a, .dropdown-menu.inner li a')).find((x) => /^\s*resolved\s*$/i.test(x.textContent)); if (a) { a.click(); done = true; } }
     await sleep(200); const chk = document.querySelector('.editable-submit, .editableform button[type=submit]');
-    if (chk) chk.click(); else console.warn('[resolve] submit not found'); console.log('[resolve] selected=' + done); await sleep(700);
+    if (chk) chk.click(); else console.warn('[resolve] submit not found'); await sleep(700);
   }
+  async function noAnswerOneNote() { await addNoteAndSave(NO_ANSWER_NOTE); await setDueNextBusinessDay(); }
+  async function noAnswerMultiNote() { await addNoteAndSave("Didn't answer twice"); await resolveStatus(); }
   async function selectBlankOutcome() {
     const toggle = document.querySelector('button[data-id="ReasonID"]');
     const group = toggle ? toggle.closest('.bootstrap-select') : (document.querySelector('#ReasonID') ? document.querySelector('#ReasonID').closest('.bootstrap-select') : null);
@@ -429,7 +436,7 @@
       const c = currentLead;
       bridge('/state', 'POST', JSON.stringify({
         left: q.filter((l) => !dialed.has(l.acct)).length, total: q.length, paused: paused, state: callState,
-        cur: c ? { name: c.name, phone: c.phone, type: c.type, size: c.size || '', acct: c.acct, notes: c.noteCount || 0, issue: (typeof c.issue === 'string' ? c.issue : ''), services: c.services || [], raw: (typeof c.raw === 'string' ? c.raw : '') } : null,
+        cur: c ? { name: c.name, phone: c.phone, type: c.type, size: c.size || '', acct: c.acct, notes: c.noteCount || 0, issue: (typeof c.issue === 'string' ? c.issue : ''), services: c.services || [], notesList: c.notesList || [], raw: (typeof c.raw === 'string' ? c.raw : '') } : null,
         queue: q.map((l) => ({ name: l.name, phone: l.phone, type: l.type, size: l.size || '', issue: (typeof l.issue === 'string' ? l.issue : ''), done: dialed.has(l.acct), cur: !!(c && c.acct === l.acct) })),
       }));
     } catch (e) {}
