@@ -102,6 +102,14 @@ li.cur{background:#16324a;border-radius:6px;padding:5px;margin-left:-5px}
 textarea{width:100%;box-sizing:border-box;min-height:110px;background:#16202b;color:#e8eef4;border:1px solid #2b3a48;border-radius:8px;padding:8px;font:13px system-ui}
 .save{background:#0E94D2;margin-top:8px;width:100%}
 .stat{padding:4px 12px 8px;color:#9ab;font-size:13px}
+.cur{margin:8px 10px;background:#16324a;border:1px solid #234a68;border-radius:12px;padding:14px}
+.cur .st{font-size:12px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:#7fb7d8}
+.cur .nm{font-size:24px;font-weight:800;margin:2px 0 2px;line-height:1.15}
+.cur .ln{color:#cfe1ee;font-size:15px;margin:2px 0}
+.cur .ln b{color:#fff}
+.cur .big-iss{display:inline-block;margin-top:8px;background:#c0392b;color:#fff;font-weight:800;
+  font-size:15px;padding:5px 11px;border-radius:8px;text-transform:uppercase}
+.cur .svc{margin-top:9px;font-size:13px;color:#bcd}.cur .svc div{padding:2px 0;border-top:1px solid #234a68}
 .lbl{font-size:12px;color:#9ab;margin:8px 0 4px}
 </style></head><body>
 <header>Dialer Control <span id="conn" style="float:right;font-size:12px;font-weight:400">…</span></header>
@@ -115,6 +123,14 @@ textarea{width:100%;box-sizing:border-box;min-height:110px;background:#16202b;co
 <button class="down" onclick="cmd('down')">&#9660; NO ANSWER</button>
 </div>
 <div class="stat" id="stat">-</div>
+<div class="cur" id="cur" style="display:none">
+<div class="st" id="cst">-</div>
+<div class="nm" id="cnm">-</div>
+<div class="ln" id="cph"></div>
+<div class="ln" id="cmeta"></div>
+<div class="big-iss" id="ciss" style="display:none"></div>
+<div class="svc" id="csvc"></div>
+</div>
 <div class="sec">Queue</div>
 <ol id="q"></ol>
 <div class="sec">Edit messages</div>
@@ -136,7 +152,20 @@ function esc(s){return String(s==null?'':s).replace(/[&<>]/g,function(c){return{
 function tick(){
  fetch('/state').then(function(r){return r.json();}).then(function(s){
   document.getElementById('conn').textContent='connected';
-  document.getElementById('stat').textContent=(s.left||0)+' left / '+(s.total||0)+(s.paused?' - PAUSED':'')+(s.current?(' - now: '+s.current):'');
+  document.getElementById('stat').textContent=(s.left||0)+' left / '+(s.total||0)+(s.paused?' - PAUSED':'');
+  var c=s.cur, box=document.getElementById('cur');
+  if(c){
+   box.style.display='';
+   var st=s.paused?'PAUSED':(s.state==='answered'?'ON CALL':(s.state==='ringing'?'RINGING':'—'));
+   document.getElementById('cst').textContent=st+' · '+(c.type==='tech'?'Tech Note':'CXL')+(c.size?(' · '+c.size+'k sqft'):'');
+   document.getElementById('cnm').textContent=c.name||'';
+   document.getElementById('cph').innerHTML='<b>'+esc(c.phone||'')+'</b>';
+   document.getElementById('cmeta').textContent=(c.notes||0)+' note'+((c.notes===1)?'':'s')+' · acct '+(c.acct||'');
+   var ci=document.getElementById('ciss');
+   if(c.issue&&c.issue!=='none'){ci.style.display='';ci.textContent=c.issue;}else{ci.style.display='none';}
+   var sv=document.getElementById('csvc');
+   sv.innerHTML=(c.services&&c.services.length)?('<div>'+c.services.map(esc).join('</div><div>')+'</div>'):'';
+  } else { box.style.display='none'; }
   var q=document.getElementById('q');q.innerHTML='';
   (s.queue||[]).forEach(function(l){
    var li=document.createElement('li');

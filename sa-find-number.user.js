@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco - Call Queue + Bridge + Condition Texting
 // @namespace    local.sa.dialer
-// @version      4.4
+// @version      4.5
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sa-find-number.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sa-find-number.user.js
 // @description  Labeled call queue via a local bridge: dial/hangup/text, global Up/Down, Esc pause (hang up)/resume (redial), no-answer condition lookup (clicks through all treatments) + conditional texting.
@@ -397,10 +397,11 @@
   setInterval(() => {
     try {
       const q = sortedQueue();
+      const c = currentLead;
       bridge('/state', 'POST', JSON.stringify({
-        left: q.filter((l) => !dialed.has(l.acct)).length, total: q.length, paused: paused,
-        current: currentLead ? currentLead.name : '',
-        queue: q.map((l) => ({ name: l.name, phone: l.phone, type: l.type, size: l.size || '', issue: (typeof l.issue === 'string' ? l.issue : ''), done: dialed.has(l.acct), cur: !!(currentLead && currentLead.acct === l.acct) })),
+        left: q.filter((l) => !dialed.has(l.acct)).length, total: q.length, paused: paused, state: callState,
+        cur: c ? { name: c.name, phone: c.phone, type: c.type, size: c.size || '', acct: c.acct, notes: c.noteCount || 0, issue: (typeof c.issue === 'string' ? c.issue : ''), services: c.services || [] } : null,
+        queue: q.map((l) => ({ name: l.name, phone: l.phone, type: l.type, size: l.size || '', issue: (typeof l.issue === 'string' ? l.issue : ''), done: dialed.has(l.acct), cur: !!(c && c.acct === l.acct) })),
       }));
     } catch (e) {}
   }, 1500);
