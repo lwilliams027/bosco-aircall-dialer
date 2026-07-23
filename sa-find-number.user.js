@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco - Call Queue + Bridge + Condition Texting
 // @namespace    local.sa.dialer
-// @version      4.5
+// @version      4.6
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sa-find-number.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sa-find-number.user.js
 // @description  Labeled call queue via a local bridge: dial/hangup/text, global Up/Down, Esc pause (hang up)/resume (redial), no-answer condition lookup (clicks through all treatments) + conditional texting.
@@ -58,7 +58,7 @@
                 || Array.from(document.querySelectorAll('li, span, div')).find((el) => el.children.length === 0 && (el.textContent || '').trim().toLowerCase() === 'customer details');
         if (cd) (cd.closest('a, button, li, [role="tab"]') || cd).click();
         const t1 = Date.now();
-        while (Date.now() - t1 < 6000 && !document.querySelector('#DetailServices')) await sleep(300);
+        while (Date.now() - t1 < 8000 && !document.querySelector('a[href*="/Customer/Program/Index/"]')) await sleep(300);
         await sleep(500);
       } catch (e) {}
       const svc = (document.body.innerText || '').toLowerCase();
@@ -68,7 +68,7 @@
         disease: /lawn disease|disease control|disease treatment|(?:prevent|curat)\w*\s*\w*\s*disease|disease\s*\w*\s*(?:prevent|curat)/.test(svc),
       };
       // service/treatment list (LC, GP, ...) from #DetailServices, property size from #DetailProperty
-      let services = []; try { const sec = document.querySelector('#DetailServices') || document.body; services = [...new Set(Array.from(sec.querySelectorAll('a')).map((a) => (a.textContent || '').replace(/\s+/g, ' ').trim()).filter((t) => /^[A-Z]{2,4}\s*[-–—]\s*\S/.test(t)))]; } catch (e) {}
+      let services = []; try { services = [...new Set(Array.from(document.querySelectorAll('a[href*="/Customer/Program/Index/"]')).map((a) => (a.textContent || '').replace(/\s+/g, ' ').trim()).filter(Boolean))]; } catch (e) {}
       let size = ''; try { const mm = ((document.querySelector('#DetailProperty') || document.body).innerText || '').match(/(\d+(?:\.\d+)?)\s*1000\s*sq\s*ft/i); if (mm) size = String(parseInt(mm[1], 10)); } catch (e) {}
       console.log('[sa-scan] hasTreatment:', JSON.stringify(hasTx), '| size', size, '| services', services);
       // priority moles > sod webworm > disease; skip a condition if they already have its treatment

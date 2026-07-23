@@ -111,6 +111,15 @@ textarea{width:100%;box-sizing:border-box;min-height:110px;background:#16202b;co
   font-size:15px;padding:5px 11px;border-radius:8px;text-transform:uppercase}
 .cur .svc{margin-top:9px;font-size:13px;color:#bcd}.cur .svc div{padding:2px 0;border-top:1px solid #234a68}
 .lbl{font-size:12px;color:#9ab;margin:8px 0 4px}
+.pricebar{display:flex;align-items:center;gap:10px;margin:6px 0 12px}
+.pricebar label{color:#9ab;font-size:13px;margin:0}
+.pricebar input{width:96px;background:#0f1720;border:1px solid #2b3a48;border-radius:8px;color:#fff;padding:12px;font-size:19px;text-align:center;font-weight:700}
+.pgrp{margin:14px 0 4px;color:#8fc7e8;font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.4px}
+.prow{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid #22303c}
+.pn{font-size:14.5px}.pg{color:#7fb7d8;font-size:11px}
+.pr{text-align:right;white-space:nowrap}
+.pp{font-weight:800;font-size:16px;color:#7BBF43}
+.pt{display:block;color:#9ab;font-size:12px}
 </style></head><body>
 <header>Dialer Control <span id="conn" style="float:right;font-size:12px;font-weight:400">…</span></header>
 <div class="btns">
@@ -133,22 +142,53 @@ textarea{width:100%;box-sizing:border-box;min-height:110px;background:#16202b;co
 </div>
 <div class="sec">Queue</div>
 <ol id="q"></ol>
-<div class="sec">Edit messages</div>
+<div class="sec">Price sheet</div>
 <div style="padding:0 12px 30px">
-<div class="lbl">Insect / sod webworm - use {name}</div>
-<textarea id="insect"></textarea>
-<div class="lbl">Disease / leaf + dollar spot - use {name}</div>
-<textarea id="disease"></textarea>
-<button class="save" onclick="saveCfg()">SAVE MESSAGES</button>
+<div class="pricebar"><label>Lawn size (&times;1,000 sqft)</label><input id="psize" type="number" inputmode="decimal" min="0" step="0.5" oninput="renderPrices()"></div>
+<div id="prices"></div>
 </div>
 <script>
 function cmd(c){fetch('/cmd',{method:'POST',body:c}).catch(function(){});}
-function saveCfg(){
- var b={insect:document.getElementById('insect').value,disease:document.getElementById('disease').value};
- fetch('/config',{method:'POST',body:JSON.stringify(b)}).then(function(){alert('Saved');}).catch(function(){alert('Save failed');});
-}
-var cfgLoaded=false;
 function esc(s){return String(s==null?'':s).replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
+var lastPricedAcct='';
+var SVCS={'Lawn Care':[
+  {n:'Lawn Care',b:59,r:5,apps:7,g:'5 apps'},
+  {n:'Organic Lawn Care',b:82,r:11,apps:7,g:'5 apps'},
+  {n:'Grub Prevention',b:99,r:12,apps:1,g:'365 Days'},
+  {n:'Surface Insect / Grub Killer',b:145,r:18,apps:1,g:'60 Days'},
+  {n:'Aeration',b:129,r:15,apps:1,g:''},
+  {n:'Overseeding',b:164,r:20,apps:1,g:''},
+  {n:'Lawn Disease Curative/Preventer',b:173,r:20,apps:1,g:'Full Season'},
+  {n:'Water Maximizer',b:115,r:17,apps:1,g:''},
+  {n:'Potassium',b:59,r:4,apps:1,g:''},
+  {n:'Soil Treatment Program',b:63,r:5.5,apps:1,g:''},
+  {n:'Soil Test',flat:75,apps:1,g:''}],
+ 'Safari Tree':[
+  {n:'Tree Care',b:63,r:5,apps:7,g:'5 apps'},
+  {n:'Mole Control',b:167,r:12,apps:4,g:'Full Program'},
+  {n:'Mole Control (single app)',b:250,r:17,apps:1,g:'45 Days'},
+  {n:'Deep Root',b:63,r:5,apps:3,g:''},
+  {n:'Mosquito, Flea & Tick',b:125,r:5,apps:5,g:'Full Program'},
+  {n:'Natural Mosquito, Flea & Tick',b:175,r:7,apps:5,g:'Full Program'},
+  {n:'Tri-Annual',flat:600,apps:3,g:'Full Program'},
+  {n:'Vole Control',b:69,r:4,apps:1,g:'45 Days'}],
+ 'Trees':[
+  {n:'Tree Fungicide (Scab/Blight)',flat:65,apps:1,g:''}]};
+function per(s,z){return s.flat!=null?s.flat:(z<=5?s.b:s.b+(z-5)*s.r);}
+function money(v){return '$'+(Math.round(v*100)/100).toFixed(2);}
+function renderPrices(){
+ var z=parseFloat(document.getElementById('psize').value)||0;var h='';
+ Object.keys(SVCS).forEach(function(grp){
+  h+='<div class="pgrp">'+grp+'</div>';
+  SVCS[grp].forEach(function(s){
+   var p=per(s,z),right;
+   if(s.apps>1){var se=p*s.apps;right='<span class="pp">'+money(p)+'/app</span><span class="pt">'+money(se)+' season &middot; '+money(se*0.93)+' prepay</span>';}
+   else{right='<span class="pp">'+money(p)+'</span>';}
+   h+='<div class="prow"><div class="pn">'+esc(s.n)+(s.g?' <span class="pg">'+esc(s.g)+'</span>':'')+'</div><div class="pr">'+right+'</div></div>';
+  });
+ });
+ document.getElementById('prices').innerHTML=h;
+}
 function tick(){
  fetch('/state').then(function(r){return r.json();}).then(function(s){
   document.getElementById('conn').textContent='connected';
@@ -165,6 +205,7 @@ function tick(){
    if(c.issue&&c.issue!=='none'){ci.style.display='';ci.textContent=c.issue;}else{ci.style.display='none';}
    var sv=document.getElementById('csvc');
    sv.innerHTML=(c.services&&c.services.length)?('<div>'+c.services.map(esc).join('</div><div>')+'</div>'):'';
+   if(c.size&&String(c.acct)!==lastPricedAcct&&document.activeElement!==document.getElementById('psize')){lastPricedAcct=String(c.acct);document.getElementById('psize').value=c.size;renderPrices();}
   } else { box.style.display='none'; }
   var q=document.getElementById('q');q.innerHTML='';
   (s.queue||[]).forEach(function(l){
@@ -176,11 +217,8 @@ function tick(){
    q.appendChild(li);
   });
  }).catch(function(){document.getElementById('conn').textContent='offline';});
- if(!cfgLoaded){fetch('/config').then(function(r){return r.json();}).then(function(c){
-   if(c&&c.insect)document.getElementById('insect').value=c.insect;
-   if(c&&c.disease)document.getElementById('disease').value=c.disease;cfgLoaded=true;}).catch(function(){});}
 }
-setInterval(tick,1200);tick();
+renderPrices();setInterval(tick,1200);tick();
 </script></body></html>
 '@
 
