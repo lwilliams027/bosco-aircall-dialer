@@ -58,7 +58,7 @@
 
   <div class="card">
     <h2>Install / update the userscript</h2>
-    <a class="btn install" href="https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sa-find-number.user.js">INSTALL USERSCRIPT</a>
+    <a class="btn install" href="https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js">INSTALL USERSCRIPT</a>
     <p class="hint">Needs Tampermonkey. After installing once, it auto-updates from this repo —
        no more copy-pasting.</p>
   </div>
@@ -66,8 +66,10 @@
   <div class="card">
     <h2>Keys</h2>
     <table>
-      <tr><td><kbd>&uarr;</kbd></td><td>Answered — hang up, go to next lead</td></tr>
-      <tr><td><kbd>&darr;</kbd></td><td>No answer — log note, text if a condition is found, next</td></tr>
+      <tr><td><kbd>&uarr;</kbd></td><td>Answered — then pick GO NEXT or RESOLVE</td></tr>
+      <tr><td><kbd>&darr;</kbd></td><td>No answer — log note, reschedule (or resolve on the 2nd)</td></tr>
+      <tr><td><kbd>r</kbd></td><td>Resolve — "not interested in &lt;treatment&gt;" note, then close</td></tr>
+      <tr><td><kbd>h</kbd></td><td>Hold — pause without hanging up the call</td></tr>
       <tr><td><kbd>Esc</kbd></td><td>Pause (hangs up) / resume (redials same lead)</td></tr>
       <tr><td><kbd>Enter</kbd></td><td>Start calling the queue</td></tr>
       <tr><td><kbd>f</kbd></td><td>Rescan the call log from scratch</td></tr>
@@ -81,11 +83,11 @@
     <h2>Daily start-up</h2>
     <ol>
       <li>Open the Bosco call-log tab.</li>
-      <li>Double-click <code>aircall-autofill.bat</code> — leave the black window open.</li>
+      <li>Double-click <code>start-dialer.bat</code> — leave the black window open.</li>
       <li>Panel header in Bosco turns <b style="color:var(--blue)">blue</b> = bridge connected.</li>
       <li>It loads the saved queue and starts calling (<kbd>f</kbd> to rescan).</li>
     </ol>
-    <p class="hint">Phone control needs <code>setup-phone-control.bat</code> run as
+    <p class="hint">Phone control needs <code>setup-phone.bat</code> run as
        administrator once.</p>
   </div>
 </main>

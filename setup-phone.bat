@@ -15,7 +15,7 @@ echo.
 echo Adding firewall rule for port 8123 ...
 netsh advfirewall firewall add rule name="Aircall Dialer Control 8123" dir=in action=allow protocol=TCP localport=8123
 echo.
-echo Done. Now run aircall-autofill.bat normally - it will print the
+echo Done. Now run start-dialer.bat normally - it will print the
 echo phone URL, e.g.  http://192.168.1.50:8123/
 echo Open that on your phone (same Wi-Fi).
 echo.

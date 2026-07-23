@@ -170,11 +170,11 @@ li.cur{border-color:var(--blue);background:#16324a}
 .pr{text-align:right;white-space:nowrap} .pp{font-weight:800;font-size:17px;color:var(--grn)} .pt{display:block;color:var(--dim);font-size:12px}
 </style></head><body>
 
-<header><b>Dialer</b><span id="dot">connectingâ€¦</span></header>
+<header><b>Dialer</b><span id="dot">connecting...</span></header>
 
 <div class="wrap">
   <div class="cur hide" id="cur">
-    <span class="pill" id="cst">â€”</span>
+    <span class="pill" id="cst">-</span>
     <div class="cname" id="cnm"></div>
     <div class="cphone" id="cph"></div>
     <div class="cmeta" id="cmeta"></div>
@@ -204,7 +204,7 @@ li.cur{border-color:var(--blue);background:#16324a}
   </div>
   <button class="price-btn" onclick="openPrice()">&#128181; PRICE SHEET</button>
 
-  <div class="qhead"><span class="t">Queue</span><span class="c" id="qc">â€”</span></div>
+  <div class="qhead"><span class="t">Queue</span><span class="c" id="qc">-</span></div>
   <ol id="q"></ol>
 </div>
 
@@ -281,7 +281,7 @@ function tick(){
   var c=s.cur,box=document.getElementById('cur'),none=document.getElementById('none');
   if(c){
    box.classList.remove('hide');none.style.display='none';
-   var st=s.paused?'PAUSED':(s.state==='answered'?'ON CALL':(s.state==='ringing'?'RINGING':'â€”'));
+   var st=s.paused?'PAUSED':(s.state==='answered'?'ON CALL':(s.state==='ringing'?'RINGING':'-'));
    var cls=s.paused?'paused':(s.state==='answered'?'call':(s.state==='ringing'?'ring':''));
    var pill=document.getElementById('cst');pill.textContent=st;pill.className='pill '+cls;
    answered=(s.state==='answered'&&!s.paused);
@@ -328,7 +328,7 @@ foreach ($p in @("http://+:$WebPort/", "http://127.0.0.1:$WebPort/")) {
 }
 if (-not $bound) { throw "Could not start the web server on port $WebPort" }
 $lanOnly = ($listener.Prefixes -join '') -like '*127.0.0.1*'
-if ($lanOnly) { Write-Host "NOTE: localhost only - run setup-phone-control.bat as admin once to enable phone access." -ForegroundColor Yellow }
+if ($lanOnly) { Write-Host "NOTE: localhost only - run setup-phone.bat as admin once to enable phone access." -ForegroundColor Yellow }
 else {
   $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } | Select-Object -First 1).IPAddress
   Write-Host "PHONE CONTROL:  http://$ip`:$WebPort/   (same Wi-Fi)" -ForegroundColor Cyan

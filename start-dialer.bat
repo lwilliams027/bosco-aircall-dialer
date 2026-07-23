@@ -4,8 +4,8 @@ set PORT=9222
 set EXE=C:\Users\LandonWiliams\AppData\Local\AircallWorkspace\AircallWorkspace.exe
 
 echo ================================================================
-echo  Aircall auto-fill
-echo  This connects Aircall to the Bosco dialer queue.
+echo  Bosco Dialer - bridge
+echo  Connects Aircall to the Bosco call queue.
 echo ================================================================
 echo.
 
@@ -25,7 +25,7 @@ echo Starting Aircall... (log back in if it asks)
 timeout /t 7 >nul
 
 :inject
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0aircall-inject.ps1" -Port %PORT%
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0bridge.ps1" -Port %PORT%
 echo.
 echo Watcher stopped. You can close this window.
 pause >nul
