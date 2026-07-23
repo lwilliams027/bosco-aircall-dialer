@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco - Call Queue + Bridge + Condition Texting
 // @namespace    local.sa.dialer
-// @version      4.9
+// @version      5.0
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sa-find-number.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sa-find-number.user.js
 // @description  Labeled call queue via a local bridge: dial/hangup/text, global Up/Down, Esc pause (hang up)/resume (redial), no-answer condition lookup (clicks through all treatments) + conditional texting.
@@ -249,16 +249,22 @@
   }
   function advance() { if (currentLead) dialed.add(currentLead.acct); callState = 'idle'; renderPanel(); startLead(nextUndialed()); }
   async function hangup() { await bridgeHangup(); await sleep(500); }
-  function togglePause() {
-    paused = !paused;
-    renderPanel();
-    if (paused) {
-      bridgeHangup();  // pausing hangs up the current call
-      badge('PAUSED — call hung up. Esc to resume', '#f39c12');
-    } else {
-      if (currentLead && !dialed.has(currentLead.acct)) { bridgeDial(currentLead.e164); callState = 'ringing'; }  // resuming redials the same lead
-      badge(currentLead ? `Resumed — redialing ${currentLead.name}` : 'Resumed', '#0E94D2');
-    }
+  let pendingRedial = false;
+  function resumeFlow() {
+    paused = false; renderPanel();
+    if (pendingRedial && currentLead && !dialed.has(currentLead.acct)) { bridgeDial(currentLead.e164); callState = 'ringing'; badge(`Resumed — redialing ${currentLead.name}`, '#0E94D2'); }
+    else badge('Resumed', '#0E94D2');
+    pendingRedial = false;
+  }
+  function togglePause() {   // pause: hangs up, resume redials
+    if (paused) { resumeFlow(); return; }
+    paused = true; pendingRedial = true; renderPanel(); bridgeHangup();
+    badge('PAUSED — call hung up. Esc to resume', '#f39c12');
+  }
+  function toggleHold() {    // "getting a call": pause but KEEP the call, no redial on resume
+    if (paused) { resumeFlow(); return; }
+    paused = true; pendingRedial = false; renderPanel();
+    badge('ON HOLD — call kept. Resume when ready', '#f39c12');
   }
 
   async function onAnswerKey() {
@@ -408,6 +414,7 @@
   function stopAll() { running = false; bridgeHangup(); callState = 'idle'; renderPanel(); badge('STOPPED', '#c0392b'); }
   function handleCmd(cmd) {
     if (cmd === 'pause') { togglePause(); return; }
+    if (cmd === 'hold') { toggleHold(); return; }
     if (cmd === 'stop') { stopAll(); return; }
     if (paused && cmd !== 'run' && cmd !== 'start') return;
     if (cmd === 'up') onAnswerKey();
@@ -444,6 +451,7 @@
     else if (k === ANSWER_KEY) { e.preventDefault(); onAnswerKey(); }
     else if (k === NOANS_KEY) { e.preventDefault(); onNoAnswerKey(); }
     else if (k === 'r' || k === 'R') { e.preventDefault(); onResolve(); }
+    else if (k === 'h' || k === 'H') { e.preventDefault(); toggleHold(); }
     else if (k === COPY_KEY) { e.preventDefault(); copyLog(); }
     else if (k === CLEAR_KEY) { e.preventDefault(); clearAll(); }
     else if (k === PAUSE_KEY) { e.preventDefault(); togglePause(); }

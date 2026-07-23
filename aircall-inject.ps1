@@ -1,4 +1,4 @@
-﻿# Aircall bridge: CDP to Aircall + local HTTP control server + global Up/Down hotkeys.
+# Aircall bridge: CDP to Aircall + local HTTP control server + global Up/Down hotkeys.
 #   Serves a phone-friendly control page at  http://<pc-ip>:8123/
 #   Routes: GET /  | GET /poll | POST /cmd | GET|POST /state | GET|POST /config
 #           POST /dial | POST /hangup | POST /text
@@ -121,6 +121,10 @@ button{border:0;border-radius:14px;font-weight:800;color:#fff;cursor:pointer;fon
 button:active{filter:brightness(1.22)}
 .price-btn{width:100%;margin-top:12px;padding:16px;font-size:16px;background:#123a4d;color:#8fd3ef;
   border:1px solid #1d5871;border-radius:14px}
+.util{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.hold-btn{padding:14px;font-size:14px;background:#3a2e12;color:#ffd28a;border:1px solid #5a4520;border-radius:14px}
+.hold-btn.act{background:#7BBF43;color:#08320f;border-color:#7BBF43}
+.nc-btn{padding:14px;font-size:14px;background:#22303c;color:#cfe1ef;border:1px solid #33475a;border-radius:14px}
 
 /* queue */
 .qhead{display:flex;align-items:center;justify-content:space-between;margin:18px 4px 8px}
@@ -179,6 +183,10 @@ li.cur{border-color:var(--blue);background:#16324a}
     <button class="sm stop" onclick="cmd('stop')">STOP</button>
   </div>
 
+  <div class="util">
+    <button class="hold-btn" id="bhold" onclick="cmd('hold')">&#128222; GETTING A CALL</button>
+    <button class="nc-btn" onclick="fetch('/newconv',{method:'POST'}).catch(function(){})">&#8635; RESET DIAL (Alt+N)</button>
+  </div>
   <button class="price-btn" onclick="openPrice()">&#128181; PRICE SHEET</button>
 
   <div class="qhead"><span class="t">Queue</span><span class="c" id="qc">â€”</span></div>
@@ -245,7 +253,8 @@ function renderPrices(){
 function tick(){
  fetch('/state').then(function(r){return r.json();}).then(function(s){
   document.getElementById('dot').className='on';document.getElementById('dot').textContent='connected';
-  document.getElementById('qc').textContent=(s.left||0)+' left / '+(s.total||0)+(s.paused?' Â· PAUSED':'');
+  var bh=document.getElementById('bhold');if(s.paused){bh.innerHTML='&#9654; RESUME';bh.className='hold-btn act';}else{bh.innerHTML='&#128222; GETTING A CALL';bh.className='hold-btn';}
+  document.getElementById('qc').textContent=(s.left||0)+' left / '+(s.total||0)+(s.paused?' - PAUSED':'');
   var c=s.cur,box=document.getElementById('cur'),none=document.getElementById('none');
   if(c){
    box.classList.remove('hide');none.style.display='none';
@@ -258,7 +267,7 @@ function tick(){
    else{b1.innerHTML='&#9650; ANSWERED';b1.className='big up';b2.innerHTML='&#9660; NO ANSWER';b2.className='big down';}
    document.getElementById('cnm').textContent=c.name||'';
    document.getElementById('cph').textContent=c.phone||'';
-   document.getElementById('cmeta').textContent=(c.type==='tech'?'Tech Note':'CXL')+(c.size?(' Â· '+c.size+'k sqft'):'')+' Â· '+(c.notes||0)+' note'+((c.notes===1)?'':'s')+' Â· acct '+(c.acct||'');
+   document.getElementById('cmeta').textContent=(c.type==='tech'?'Tech Note':'CXL')+(c.size?(' - '+c.size+'k sqft'):'')+' - '+(c.notes||0)+' note'+((c.notes===1)?'':'s')+' - acct '+(c.acct||'');
    var ci=document.getElementById('ciss');if(c.issue&&c.issue!=='none'){ci.style.display='';ci.textContent=c.issue;}else{ci.style.display='none';}
    document.getElementById('csvc').innerHTML=(c.services&&c.services.length)?c.services.map(function(x){return '<span class="tchip">'+esc(x)+'</span>';}).join(''):'';
    var cr=document.getElementById('craw');if((!c.issue||c.issue==='none')&&c.raw){cr.style.display='';cr.innerHTML='<div class="rl">No auto-detected concern &mdash; conditions found (read for sod etc.):</div>'+esc(c.raw);}else{cr.style.display='none';}
@@ -329,6 +338,7 @@ while ($ws.State -eq 'Open') {
       elseif ($path -eq '/config') { if ($ctx.Request.HttpMethod -eq 'POST') { $script:config = $body; Write-Host "config saved" -ForegroundColor Cyan } else { $out = $script:config; $ctype = 'application/json' } }
       elseif ($path -eq '/dial') { $b = $body.Trim(); if ($b -match '^\+1\d{10}$') { Dial $b; Write-Host "dial $b" -ForegroundColor Cyan } }
       elseif ($path -eq '/hangup') { HangUp; Write-Host "hangup" -ForegroundColor Magenta }
+      elseif ($path -eq '/newconv') { NewConv; Start-Sleep -Milliseconds 350; NewConv; Write-Host "new conv (Alt+N x2)" -ForegroundColor Cyan }
       elseif ($path -eq '/text') { try { $o = $body | ConvertFrom-Json; if ($o.number -match '^\+1\d{10}$') { $out = (SendText $o.number $o.message) } else { $out = 'bad number' } } catch { $out = 'text error' } }
       $ctx.Response.Headers.Add('Access-Control-Allow-Origin', '*')
       $ctx.Response.ContentType = $ctype
