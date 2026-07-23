@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco - Call Queue + Bridge + Condition Texting
 // @namespace    local.sa.dialer
-// @version      4.8
+// @version      4.9
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sa-find-number.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sa-find-number.user.js
 // @description  Labeled call queue via a local bridge: dial/hangup/text, global Up/Down, Esc pause (hang up)/resume (redial), no-answer condition lookup (clicks through all treatments) + conditional texting.
@@ -43,9 +43,15 @@
       const t0 = Date.now();
       while (Date.now() - t0 < 15000 && document.querySelectorAll('tr.dx-data-row').length === 0) await sleep(400);
       const grabTC = () => {
-        const el = Array.from(document.querySelectorAll('div,span,td,li,p,strong,b,h4,h5,label')).find((e) => /^\s*target\s*\/\s*conditions/i.test((e.textContent || '').trim()) && e.children.length < 4);
-        const box = el ? (el.closest('.col-xs-12, .panel-body') || el.parentElement) : null;
-        return box ? (box.innerText || '').replace(/[ \t]+/g, ' ').replace(/\n{2,}/g, '\n').trim().slice(0, 500) : '';
+        const heads = Array.from(document.querySelectorAll('div,span,td,li,p,strong,b,h4,h5,label,th'));
+        const el = heads.find((e) => /^\s*target\s*\/\s*conditions/i.test((e.textContent || '').trim()) && (e.textContent || '').trim().length < 40);
+        if (!el) return '';
+        const box = el.closest('.panel-body, .col-md-6, .col-xs-12') || el.parentElement || el;
+        let full = (box.innerText || '');
+        const i = full.search(/target\s*\/\s*conditions/i);            // start AT the conditions heading
+        let txt = i >= 0 ? full.slice(i) : full;
+        txt = txt.split(/\n\s*(?:note\b|full charge|previous balance|net amount|net balance|prepay|balance\b|remit|posted|invoice)/i)[0]; // stop before note/pricing
+        return txt.replace(/[ \t]+/g, ' ').replace(/\n{2,}/g, '\n').trim().slice(0, 400);
       };
       const rows = Array.from(document.querySelectorAll('tr.dx-data-row')).filter((r) => /\bL0[1-9]\b/i.test(r.innerText || ''));
       const found = {}; const rawParts = [];
@@ -54,8 +60,9 @@
         if (d && (NOW - d) > THIRTY) continue; // skip treatments older than 30 days
         r.click(); await sleep(800);
         const c = readConds(); Object.assign(found, c);
-        const tc = grabTC(); if (tc) rawParts.push((d ? new Date(d).toLocaleDateString() : '?') + ' — ' + tc);
-        console.log('[sa-scan] row', d ? new Date(d).toLocaleDateString() : '?', '->', Object.keys(c).join(',') || 'none');
+        const tc = grabTC();
+        if (tc) { const low = tc.toLowerCase(); if (low.includes('moles')) found.moles = 1; if (low.includes('sod webworm')) found.sod = 1; if (low.includes('dollar spot') || low.includes('leaf spot')) found.disease = 1; rawParts.push((d ? new Date(d).toLocaleDateString() : '?') + ' — ' + tc); }
+        console.log('[sa-scan] row', d ? new Date(d).toLocaleDateString() : '?', '->', (tc || '').slice(0, 90));
       }
       console.log('[sa-scan] conditions(30d):', Object.keys(found).join(',') || 'none');
       // go to the Customer Details tab and wait for the Services panel to render
