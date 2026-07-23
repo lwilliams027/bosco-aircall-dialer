@@ -2,6 +2,8 @@
 // @name         Bosco - Call Queue + Bridge + Condition Texting
 // @namespace    local.sa.dialer
 // @version      4.4
+// @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sa-find-number.user.js
+// @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sa-find-number.user.js
 // @description  Labeled call queue via a local bridge: dial/hangup/text, global Up/Down, Esc pause (hang up)/resume (redial), no-answer condition lookup (clicks through all treatments) + conditional texting.
 // @match        https://bosco.serviceassistant.com/*
 // @run-at       document-idle
