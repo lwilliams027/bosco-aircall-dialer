@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco - Call Queue + Bridge + Condition Texting
 // @namespace    local.sa.dialer
-// @version      4.7
+// @version      4.8
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sa-find-number.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sa-find-number.user.js
 // @description  Labeled call queue via a local bridge: dial/hangup/text, global Up/Down, Esc pause (hang up)/resume (redial), no-answer condition lookup (clicks through all treatments) + conditional texting.
@@ -256,8 +256,15 @@
 
   async function onAnswerKey() {
     if (paused || busy) return;
-    if (callState !== 'ringing' && callState !== 'answered') return;
-    busy = true; await hangup(); busy = false; advance();   // one press: hang up + go to next
+    if (callState === 'ringing') { callState = 'answered'; renderPanel(); badge(`ON CALL ${currentLead.name}\n▲ = go next · R = resolve`, '#0E94D2'); }
+    else if (callState === 'answered') { busy = true; await hangup(); busy = false; advance(); }   // go next
+  }
+  async function onResolve() {
+    if (paused || busy || (callState !== 'ringing' && callState !== 'answered')) return;
+    busy = true; const lead = currentLead;
+    try { await hangup(); badge(`Resolving ${lead.name}…`, '#f39c12'); await noAnswerMultiNote(); lead.noteCount = noteCount(); }
+    catch (e) { console.error('[resolve]', e); badge('Resolve error — F12', '#c0392b'); }
+    busy = false; advance();
   }
   async function onNoAnswerKey() {
     if (paused || busy || (callState !== 'ringing' && callState !== 'answered')) return;
@@ -398,6 +405,7 @@
     if (paused && cmd !== 'run' && cmd !== 'start') return;
     if (cmd === 'up') onAnswerKey();
     else if (cmd === 'down') onNoAnswerKey();
+    else if (cmd === 'resolve') onResolve();
     else if (cmd === 'run' || cmd === 'start') doRun();
   }
   // push queue state to the bridge so the phone control page can show it
@@ -428,6 +436,7 @@
     else if (k === START_KEY) { e.preventDefault(); doRun(); }
     else if (k === ANSWER_KEY) { e.preventDefault(); onAnswerKey(); }
     else if (k === NOANS_KEY) { e.preventDefault(); onNoAnswerKey(); }
+    else if (k === 'r' || k === 'R') { e.preventDefault(); onResolve(); }
     else if (k === COPY_KEY) { e.preventDefault(); copyLog(); }
     else if (k === CLEAR_KEY) { e.preventDefault(); clearAll(); }
     else if (k === PAUSE_KEY) { e.preventDefault(); togglePause(); }

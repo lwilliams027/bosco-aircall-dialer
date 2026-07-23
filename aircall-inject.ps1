@@ -116,7 +116,7 @@ header b{font-size:16px;letter-spacing:.3px}
 .three{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px}
 button{border:0;border-radius:14px;font-weight:800;color:#fff;cursor:pointer;font-family:inherit}
 .big{padding:22px 8px;font-size:17px} .sm{padding:13px 6px;font-size:13px;letter-spacing:.3px}
-.up{background:var(--grn);color:#08320f} .down{background:var(--red)}
+.up{background:var(--grn);color:#08320f} .down{background:var(--red)} .resolve{background:var(--blue)}
 .start{background:#22303c} .pause{background:var(--amb);color:#3a2600} .stop{background:#33212a;color:#ffb3ab}
 button:active{filter:brightness(1.22)}
 .price-btn{width:100%;margin-top:12px;padding:16px;font-size:16px;background:#123a4d;color:#8fd3ef;
@@ -170,8 +170,8 @@ li.cur{border-color:var(--blue);background:#16324a}
   <div class="noneu" id="none">Not on a call. Tap START.</div>
 
   <div class="two">
-    <button class="big up" onclick="cmd('up')">&#9650; ANSWERED</button>
-    <button class="big down" onclick="cmd('down')">&#9660; NO ANSWER</button>
+    <button class="big up" id="b1" onclick="cmd('up')">&#9650; ANSWERED</button>
+    <button class="big down" id="b2" onclick="act2()">&#9660; NO ANSWER</button>
   </div>
   <div class="three">
     <button class="sm start" onclick="cmd('start')">START</button>
@@ -199,6 +199,8 @@ function cmd(c){fetch('/cmd',{method:'POST',body:c}).catch(function(){});}
 function esc(s){return String(s==null?'':s).replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
 function openPrice(){document.getElementById('ps').classList.add('open');}
 function closePrice(){document.getElementById('ps').classList.remove('open');}
+var answered=false;
+function act2(){ if(answered){cmd('resolve');}else{cmd('down');} }
 
 var lastPricedAcct='';
 var SVCS={'Lawn Care':[
@@ -250,6 +252,10 @@ function tick(){
    var st=s.paused?'PAUSED':(s.state==='answered'?'ON CALL':(s.state==='ringing'?'RINGING':'â€”'));
    var cls=s.paused?'paused':(s.state==='answered'?'call':(s.state==='ringing'?'ring':''));
    var pill=document.getElementById('cst');pill.textContent=st;pill.className='pill '+cls;
+   answered=(s.state==='answered'&&!s.paused);
+   var b1=document.getElementById('b1'),b2=document.getElementById('b2');
+   if(answered){b1.innerHTML='&#10142; GO NEXT';b1.className='big up';b2.innerHTML='&#10003; RESOLVE';b2.className='big resolve';}
+   else{b1.innerHTML='&#9650; ANSWERED';b1.className='big up';b2.innerHTML='&#9660; NO ANSWER';b2.className='big down';}
    document.getElementById('cnm').textContent=c.name||'';
    document.getElementById('cph').textContent=c.phone||'';
    document.getElementById('cmeta').textContent=(c.type==='tech'?'Tech Note':'CXL')+(c.size?(' Â· '+c.size+'k sqft'):'')+' Â· '+(c.notes||0)+' note'+((c.notes===1)?'':'s')+' Â· acct '+(c.acct||'');
@@ -257,7 +263,9 @@ function tick(){
    document.getElementById('csvc').innerHTML=(c.services&&c.services.length)?c.services.map(function(x){return '<span class="tchip">'+esc(x)+'</span>';}).join(''):'';
    var cr=document.getElementById('craw');if((!c.issue||c.issue==='none')&&c.raw){cr.style.display='';cr.innerHTML='<div class="rl">No auto-detected concern &mdash; conditions found (read for sod etc.):</div>'+esc(c.raw);}else{cr.style.display='none';}
    if(c.size&&String(c.acct)!==lastPricedAcct&&document.activeElement!==document.getElementById('psize')){lastPricedAcct=String(c.acct);document.getElementById('psize').value=c.size;renderPrices();}
-  } else { box.classList.add('hide');none.style.display=''; }
+  } else { box.classList.add('hide');none.style.display='';answered=false;
+   var b1=document.getElementById('b1'),b2=document.getElementById('b2');
+   b1.innerHTML='&#9650; ANSWERED';b1.className='big up';b2.innerHTML='&#9660; NO ANSWER';b2.className='big down'; }
   var q=document.getElementById('q');q.innerHTML='';
   (s.queue||[]).forEach(function(l){
    var li=document.createElement('li');li.className=(l.done?'done ':'')+(l.cur?'cur':'');
