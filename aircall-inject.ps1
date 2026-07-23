@@ -1,4 +1,4 @@
-# Aircall bridge: CDP to Aircall + local HTTP control server + global Up/Down hotkeys.
+﻿# Aircall bridge: CDP to Aircall + local HTTP control server + global Up/Down hotkeys.
 #   Serves a phone-friendly control page at  http://<pc-ip>:8123/
 #   Routes: GET /  | GET /poll | POST /cmd | GET|POST /state | GET|POST /config
 #           POST /dial | POST /hangup | POST /text
@@ -80,76 +80,126 @@ function SendText($num, $msg) {
 
 # ---------------- control page ----------------
 $PAGE = @'
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Dialer Control</title><style>
-body{margin:0;font:15px system-ui,-apple-system,sans-serif;background:#0f1720;color:#e8eef4}
-header{background:#0E94D2;color:#fff;padding:12px 14px;font-weight:700;position:sticky;top:0;z-index:5}
-.btns{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:10px}
-.btns2{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 10px 10px}
-button{border:0;border-radius:10px;padding:18px 8px;font-size:15px;font-weight:700;color:#fff;background:#2b3a48;cursor:pointer}
-button:active{filter:brightness(1.25)}
-.start{background:#7BBF43}.stop{background:#c0392b}.pause{background:#f39c12}
-.up{background:#7BBF43;font-size:18px}.down{background:#c0392b;font-size:18px}
-.sec{padding:10px 12px 4px;font-weight:700;color:#7fb7d8;border-top:1px solid #22303c;margin-top:6px}
-ol{margin:0;padding:0 12px 12px 30px}li{margin:7px 0;line-height:1.35}
-li.done{opacity:.35;text-decoration:line-through}
-li.cur{background:#16324a;border-radius:6px;padding:5px;margin-left:-5px}
-.chip{font-size:11px;font-weight:700;padding:1px 5px;border-radius:4px;margin-right:5px}
-.tech{background:#7BBF43;color:#04310f}.cxl{background:#c0392b;color:#fff}
-.sz{background:#0E94D2;padding:1px 5px;border-radius:4px;font-size:11px;margin-right:5px}
-.iss{color:#ff9b9b;font-weight:700;font-size:11px;margin-left:6px;text-transform:uppercase}
-.ph{color:#7fb7d8}
-textarea{width:100%;box-sizing:border-box;min-height:110px;background:#16202b;color:#e8eef4;border:1px solid #2b3a48;border-radius:8px;padding:8px;font:13px system-ui}
-.save{background:#0E94D2;margin-top:8px;width:100%}
-.stat{padding:4px 12px 8px;color:#9ab;font-size:13px}
-.cur{margin:8px 10px;background:#16324a;border:1px solid #234a68;border-radius:12px;padding:14px}
-.cur .st{font-size:12px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:#7fb7d8}
-.cur .nm{font-size:24px;font-weight:800;margin:2px 0 2px;line-height:1.15}
-.cur .ln{color:#cfe1ee;font-size:15px;margin:2px 0}
-.cur .ln b{color:#fff}
-.cur .big-iss{display:inline-block;margin-top:8px;background:#c0392b;color:#fff;font-weight:800;
-  font-size:15px;padding:5px 11px;border-radius:8px;text-transform:uppercase}
-.cur .svc{margin-top:9px;font-size:13px;color:#bcd}.cur .svc div{padding:2px 0;border-top:1px solid #234a68}
-.lbl{font-size:12px;color:#9ab;margin:8px 0 4px}
-.pricebar{display:flex;align-items:center;gap:10px;margin:6px 0 12px}
-.pricebar label{color:#9ab;font-size:13px;margin:0}
-.pricebar input{width:96px;background:#0f1720;border:1px solid #2b3a48;border-radius:8px;color:#fff;padding:12px;font-size:19px;text-align:center;font-weight:700}
-.pgrp{margin:14px 0 4px;color:#8fc7e8;font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.4px}
-.prow{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid #22303c}
-.pn{font-size:14.5px}.pg{color:#7fb7d8;font-size:11px}
-.pr{text-align:right;white-space:nowrap}
-.pp{font-weight:800;font-size:16px;color:#7BBF43}
-.pt{display:block;color:#9ab;font-size:12px}
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f1720"><title>Dialer</title><style>
+:root{--bg:#0f1720;--card:#18232f;--line:#25333f;--txt:#eef4f9;--dim:#95a9ba;--blue:#0E94D2;--grn:#7BBF43;--red:#e0574a;--amb:#f39c12}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.4 -apple-system,system-ui,Segoe UI,sans-serif;padding-bottom:24px}
+header{position:sticky;top:0;z-index:10;background:#0c131b;border-bottom:1px solid var(--line);
+  padding:11px 16px;display:flex;align-items:center;justify-content:space-between}
+header b{font-size:16px;letter-spacing:.3px}
+#dot{font-size:12px;color:var(--dim);display:flex;align-items:center;gap:6px}
+#dot::before{content:"";width:9px;height:9px;border-radius:50%;background:#556}
+#dot.on::before{background:var(--grn)} #dot.off::before{background:var(--red)}
+.wrap{max-width:560px;margin:0 auto;padding:12px}
+
+/* current customer */
+.cur{background:linear-gradient(180deg,#1b3247,#172230);border:1px solid #2a4056;border-radius:16px;padding:16px;margin-bottom:12px}
+.cur.hide{display:none}
+.pill{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;
+  padding:4px 10px;border-radius:20px;background:#24384a;color:#bcd}
+.pill.ring{background:#3a2a12;color:#ffd28a} .pill.call{background:#173a1e;color:#a7e6b0} .pill.paused{background:#3a1414;color:#ffb3ab}
+.cname{font-size:26px;font-weight:800;margin:8px 0 2px;line-height:1.1}
+.cphone{font-size:20px;font-weight:700;color:#dbe9f4}
+.cmeta{color:var(--dim);font-size:13px;margin-top:3px}
+.cissue{display:inline-block;margin-top:10px;background:var(--red);color:#fff;font-weight:800;font-size:15px;
+  padding:6px 12px;border-radius:9px;text-transform:uppercase;letter-spacing:.3px}
+.ctreat{margin-top:10px;display:flex;flex-wrap:wrap;gap:6px}
+.tchip{background:#213445;border:1px solid #2f4759;color:#cfe1ef;font-size:12px;padding:3px 9px;border-radius:14px}
+.craw{margin-top:10px;background:#0f1720;border:1px solid #2a4056;border-radius:10px;padding:10px;
+  color:#cfe1ef;font-size:12.5px;white-space:pre-wrap;max-height:180px;overflow:auto}
+.craw .rl{color:#8fc7e8;font-weight:700;margin-bottom:3px}
+.noneu{color:var(--dim);text-align:center;padding:22px 0}
+
+/* buttons */
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.three{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px}
+button{border:0;border-radius:14px;font-weight:800;color:#fff;cursor:pointer;font-family:inherit}
+.big{padding:22px 8px;font-size:17px} .sm{padding:13px 6px;font-size:13px;letter-spacing:.3px}
+.up{background:var(--grn);color:#08320f} .down{background:var(--red)}
+.start{background:#22303c} .pause{background:var(--amb);color:#3a2600} .stop{background:#33212a;color:#ffb3ab}
+button:active{filter:brightness(1.22)}
+.price-btn{width:100%;margin-top:12px;padding:16px;font-size:16px;background:#123a4d;color:#8fd3ef;
+  border:1px solid #1d5871;border-radius:14px}
+
+/* queue */
+.qhead{display:flex;align-items:center;justify-content:space-between;margin:18px 4px 8px}
+.qhead .t{font-size:13px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:#8fc7e8}
+.qhead .c{color:var(--dim);font-size:13px}
+ol{list-style:none;margin:0;padding:0}
+li{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:11px 12px;margin-bottom:8px;display:flex;align-items:center;gap:8px}
+li.done{opacity:.4} li.done .nm{text-decoration:line-through}
+li.cur{border-color:var(--blue);background:#16324a}
+.chip{font-size:10px;font-weight:800;padding:2px 6px;border-radius:5px;flex-shrink:0}
+.tech{background:var(--grn);color:#08320f} .cxl{background:var(--red);color:#fff}
+.qsz{background:var(--blue);color:#fff;font-size:11px;font-weight:800;padding:1px 6px;border-radius:5px;flex-shrink:0}
+.qmid{flex:1;min-width:0} .qmid .nm{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qmid .ph{color:var(--dim);font-size:13px}
+.qiss{color:#ff9b9b;font-weight:800;font-size:11px;text-transform:uppercase;flex-shrink:0}
+
+/* price sheet overlay */
+.overlay{position:fixed;inset:0;z-index:50;background:var(--bg);transform:translateX(100%);transition:transform .22s ease;
+  display:flex;flex-direction:column}
+.overlay.open{transform:translateX(0)}
+.oh{position:sticky;top:0;background:#0c131b;border-bottom:1px solid var(--line);padding:12px 14px;
+  display:flex;align-items:center;gap:12px;font-weight:800;font-size:17px}
+.oh .back{background:#22303c;padding:9px 14px;font-size:14px;border-radius:10px}
+.pbody{overflow:auto;padding:14px;max-width:560px;margin:0 auto;width:100%}
+.pricebar{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:8px;position:sticky;top:0}
+.pricebar label{color:var(--dim);font-size:13px}
+.pricebar input{flex:1;max-width:120px;background:#0f1720;border:1px solid #2b3a48;border-radius:10px;color:#fff;
+  padding:13px;font-size:22px;text-align:center;font-weight:800}
+.pgrp{margin:16px 0 6px;color:#8fc7e8;font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:.5px}
+.prow{display:flex;justify-content:space-between;gap:12px;padding:11px 2px;border-bottom:1px solid var(--line)}
+.pn{font-size:15px} .pg{color:#7fb7d8;font-size:11px}
+.pr{text-align:right;white-space:nowrap} .pp{font-weight:800;font-size:17px;color:var(--grn)} .pt{display:block;color:var(--dim);font-size:12px}
 </style></head><body>
-<header>Dialer Control <span id="conn" style="float:right;font-size:12px;font-weight:400">…</span></header>
-<div class="btns">
-<button class="start" onclick="cmd('start')">START</button>
-<button class="pause" onclick="cmd('pause')">PAUSE</button>
-<button class="stop" onclick="cmd('stop')">STOP</button>
+
+<header><b>Dialer</b><span id="dot">connectingâ€¦</span></header>
+
+<div class="wrap">
+  <div class="cur hide" id="cur">
+    <span class="pill" id="cst">â€”</span>
+    <div class="cname" id="cnm"></div>
+    <div class="cphone" id="cph"></div>
+    <div class="cmeta" id="cmeta"></div>
+    <div class="cissue" id="ciss" style="display:none"></div>
+    <div class="ctreat" id="csvc"></div>
+    <div class="craw" id="craw" style="display:none"></div>
+  </div>
+  <div class="noneu" id="none">Not on a call. Tap START.</div>
+
+  <div class="two">
+    <button class="big up" onclick="cmd('up')">&#9650; ANSWERED</button>
+    <button class="big down" onclick="cmd('down')">&#9660; NO ANSWER</button>
+  </div>
+  <div class="three">
+    <button class="sm start" onclick="cmd('start')">START</button>
+    <button class="sm pause" onclick="cmd('pause')">PAUSE</button>
+    <button class="sm stop" onclick="cmd('stop')">STOP</button>
+  </div>
+
+  <button class="price-btn" onclick="openPrice()">&#128181; PRICE SHEET</button>
+
+  <div class="qhead"><span class="t">Queue</span><span class="c" id="qc">â€”</span></div>
+  <ol id="q"></ol>
 </div>
-<div class="btns2">
-<button class="up" onclick="cmd('up')">&#9650; ANSWERED</button>
-<button class="down" onclick="cmd('down')">&#9660; NO ANSWER</button>
+
+<div class="overlay" id="ps">
+  <div class="oh"><button class="back" onclick="closePrice()">&larr; Back</button> Price Sheet</div>
+  <div class="pbody">
+    <div class="pricebar"><label>Lawn size<br>&times;1,000 sqft</label>
+      <input id="psize" type="number" inputmode="decimal" min="0" step="0.5" oninput="renderPrices()"></div>
+    <div id="prices"></div>
+  </div>
 </div>
-<div class="stat" id="stat">-</div>
-<div class="cur" id="cur" style="display:none">
-<div class="st" id="cst">-</div>
-<div class="nm" id="cnm">-</div>
-<div class="ln" id="cph"></div>
-<div class="ln" id="cmeta"></div>
-<div class="big-iss" id="ciss" style="display:none"></div>
-<div class="svc" id="csvc"></div>
-</div>
-<div class="sec">Queue</div>
-<ol id="q"></ol>
-<div class="sec">Price sheet</div>
-<div style="padding:0 12px 30px">
-<div class="pricebar"><label>Lawn size (&times;1,000 sqft)</label><input id="psize" type="number" inputmode="decimal" min="0" step="0.5" oninput="renderPrices()"></div>
-<div id="prices"></div>
-</div>
+
 <script>
 function cmd(c){fetch('/cmd',{method:'POST',body:c}).catch(function(){});}
 function esc(s){return String(s==null?'':s).replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
+function openPrice(){document.getElementById('ps').classList.add('open');}
+function closePrice(){document.getElementById('ps').classList.remove('open');}
+
 var lastPricedAcct='';
 var SVCS={'Lawn Care':[
   {n:'Lawn Care',b:59,r:5,apps:7,g:'5 apps'},
@@ -189,34 +239,35 @@ function renderPrices(){
  });
  document.getElementById('prices').innerHTML=h;
 }
+
 function tick(){
  fetch('/state').then(function(r){return r.json();}).then(function(s){
-  document.getElementById('conn').textContent='connected';
-  document.getElementById('stat').textContent=(s.left||0)+' left / '+(s.total||0)+(s.paused?' - PAUSED':'');
-  var c=s.cur, box=document.getElementById('cur');
+  document.getElementById('dot').className='on';document.getElementById('dot').textContent='connected';
+  document.getElementById('qc').textContent=(s.left||0)+' left / '+(s.total||0)+(s.paused?' Â· PAUSED':'');
+  var c=s.cur,box=document.getElementById('cur'),none=document.getElementById('none');
   if(c){
-   box.style.display='';
-   var st=s.paused?'PAUSED':(s.state==='answered'?'ON CALL':(s.state==='ringing'?'RINGING':'—'));
-   document.getElementById('cst').textContent=st+' · '+(c.type==='tech'?'Tech Note':'CXL')+(c.size?(' · '+c.size+'k sqft'):'');
+   box.classList.remove('hide');none.style.display='none';
+   var st=s.paused?'PAUSED':(s.state==='answered'?'ON CALL':(s.state==='ringing'?'RINGING':'â€”'));
+   var cls=s.paused?'paused':(s.state==='answered'?'call':(s.state==='ringing'?'ring':''));
+   var pill=document.getElementById('cst');pill.textContent=st;pill.className='pill '+cls;
    document.getElementById('cnm').textContent=c.name||'';
-   document.getElementById('cph').innerHTML='<b>'+esc(c.phone||'')+'</b>';
-   document.getElementById('cmeta').textContent=(c.notes||0)+' note'+((c.notes===1)?'':'s')+' · acct '+(c.acct||'');
-   var ci=document.getElementById('ciss');
-   if(c.issue&&c.issue!=='none'){ci.style.display='';ci.textContent=c.issue;}else{ci.style.display='none';}
-   var sv=document.getElementById('csvc');
-   sv.innerHTML=(c.services&&c.services.length)?('<div>'+c.services.map(esc).join('</div><div>')+'</div>'):'';
+   document.getElementById('cph').textContent=c.phone||'';
+   document.getElementById('cmeta').textContent=(c.type==='tech'?'Tech Note':'CXL')+(c.size?(' Â· '+c.size+'k sqft'):'')+' Â· '+(c.notes||0)+' note'+((c.notes===1)?'':'s')+' Â· acct '+(c.acct||'');
+   var ci=document.getElementById('ciss');if(c.issue&&c.issue!=='none'){ci.style.display='';ci.textContent=c.issue;}else{ci.style.display='none';}
+   document.getElementById('csvc').innerHTML=(c.services&&c.services.length)?c.services.map(function(x){return '<span class="tchip">'+esc(x)+'</span>';}).join(''):'';
+   var cr=document.getElementById('craw');if((!c.issue||c.issue==='none')&&c.raw){cr.style.display='';cr.innerHTML='<div class="rl">No auto-detected concern &mdash; conditions found (read for sod etc.):</div>'+esc(c.raw);}else{cr.style.display='none';}
    if(c.size&&String(c.acct)!==lastPricedAcct&&document.activeElement!==document.getElementById('psize')){lastPricedAcct=String(c.acct);document.getElementById('psize').value=c.size;renderPrices();}
-  } else { box.style.display='none'; }
+  } else { box.classList.add('hide');none.style.display=''; }
   var q=document.getElementById('q');q.innerHTML='';
   (s.queue||[]).forEach(function(l){
-   var li=document.createElement('li');
-   li.className=(l.done?'done ':'')+(l.cur?'cur':'');
-   li.innerHTML='<span class="chip '+(l.type==='tech'?'tech':'cxl')+'">'+(l.type==='tech'?'Tech':'CXL')+'</span>'+
-    (l.size?'<span class="sz">'+esc(l.size)+'</span>':'')+'<b>'+esc(l.name)+'</b> <span class="ph">'+esc(l.phone)+'</span>'+
-    (l.issue&&l.issue!=='none'?'<span class="iss">'+esc(l.issue)+'</span>':'');
+   var li=document.createElement('li');li.className=(l.done?'done ':'')+(l.cur?'cur':'');
+   li.innerHTML='<span class="chip '+(l.type==='tech'?'tech':'cxl')+'">'+(l.type==='tech'?'T':'C')+'</span>'+
+    (l.size?'<span class="qsz">'+esc(l.size)+'</span>':'')+
+    '<span class="qmid"><span class="nm">'+esc(l.name)+'</span> <span class="ph">'+esc(l.phone)+'</span></span>'+
+    (l.issue&&l.issue!=='none'?'<span class="qiss">'+esc(l.issue)+'</span>':'');
    q.appendChild(li);
   });
- }).catch(function(){document.getElementById('conn').textContent='offline';});
+ }).catch(function(){document.getElementById('dot').className='off';document.getElementById('dot').textContent='offline';});
 }
 renderPrices();setInterval(tick,1200);tick();
 </script></body></html>

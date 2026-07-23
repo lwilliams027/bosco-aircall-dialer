@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco - Call Queue + Bridge + Condition Texting
 // @namespace    local.sa.dialer
-// @version      4.6
+// @version      4.7
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sa-find-number.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sa-find-number.user.js
 // @description  Labeled call queue via a local bridge: dial/hangup/text, global Up/Down, Esc pause (hang up)/resume (redial), no-answer condition lookup (clicks through all treatments) + conditional texting.
@@ -42,13 +42,19 @@
       };
       const t0 = Date.now();
       while (Date.now() - t0 < 15000 && document.querySelectorAll('tr.dx-data-row').length === 0) await sleep(400);
+      const grabTC = () => {
+        const el = Array.from(document.querySelectorAll('div,span,td,li,p,strong,b,h4,h5,label')).find((e) => /^\s*target\s*\/\s*conditions/i.test((e.textContent || '').trim()) && e.children.length < 4);
+        const box = el ? (el.closest('.col-xs-12, .panel-body') || el.parentElement) : null;
+        return box ? (box.innerText || '').replace(/[ \t]+/g, ' ').replace(/\n{2,}/g, '\n').trim().slice(0, 500) : '';
+      };
       const rows = Array.from(document.querySelectorAll('tr.dx-data-row')).filter((r) => /\bL0[1-9]\b/i.test(r.innerText || ''));
-      const found = {};
+      const found = {}; const rawParts = [];
       for (const r of rows) {
         const d = rowDate(r);
         if (d && (NOW - d) > THIRTY) continue; // skip treatments older than 30 days
         r.click(); await sleep(800);
         const c = readConds(); Object.assign(found, c);
+        const tc = grabTC(); if (tc) rawParts.push((d ? new Date(d).toLocaleDateString() : '?') + ' — ' + tc);
         console.log('[sa-scan] row', d ? new Date(d).toLocaleDateString() : '?', '->', Object.keys(c).join(',') || 'none');
       }
       console.log('[sa-scan] conditions(30d):', Object.keys(found).join(',') || 'none');
@@ -76,8 +82,9 @@
       if (found.moles && !hasTx.moles) best = 'moles';             // moles = leave alone (no text)
       else if (found.sod && !hasTx.sod) best = 'sod webworm';      // insect text
       else if (found.disease && !hasTx.disease) best = 'leaf spot'; // disease text
+      const raw = best === 'none' ? rawParts.join('\n').slice(0, 1600) : '';
       console.log('[sa-scan] result:', best);
-      try { GM_setValue('sa_condition', { acct: String(acct), condition: best, size, services, ts: Date.now() }); } catch (e) {}
+      try { GM_setValue('sa_condition', { acct: String(acct), condition: best, size, services, raw: raw, ts: Date.now() }); } catch (e) {}
     })(histM[1]);
     return; // don't run the call-queue UI on the customer/history page
   }
@@ -217,7 +224,7 @@
       if (!l) break;
       l.issue = null; renderPanel();
       const r = await lookupCondition(l.acct);
-      l.issue = r.condition; l.size = r.size || ''; l.services = r.services || [];
+      l.issue = r.condition; l.size = r.size || ''; l.services = r.services || []; l.raw = r.raw || '';
       renderPanel();
     }
     enriching = false;
@@ -261,7 +268,7 @@
         badge(`No answer — checking history for ${lead.name}…`, '#f39c12');
         let cond;
         if (typeof lead.issue === 'string' && lead.issue !== 'none') { cond = lead.issue; }
-        else { const r = await lookupCondition(lead.acct); cond = r.condition; lead.issue = cond; lead.size = r.size || ''; lead.services = r.services || []; }
+        else { const r = await lookupCondition(lead.acct); cond = r.condition; lead.issue = cond; lead.size = r.size || ''; lead.services = r.services || []; lead.raw = r.raw || ''; }
         const first = firstName(lead.name);
         const tpl = await getTemplates();
         const mkI = (n) => (tpl.insect ? tpl.insect.replace(/\{name\}/g, n) : insectMsg(n));
@@ -400,7 +407,7 @@
       const c = currentLead;
       bridge('/state', 'POST', JSON.stringify({
         left: q.filter((l) => !dialed.has(l.acct)).length, total: q.length, paused: paused, state: callState,
-        cur: c ? { name: c.name, phone: c.phone, type: c.type, size: c.size || '', acct: c.acct, notes: c.noteCount || 0, issue: (typeof c.issue === 'string' ? c.issue : ''), services: c.services || [] } : null,
+        cur: c ? { name: c.name, phone: c.phone, type: c.type, size: c.size || '', acct: c.acct, notes: c.noteCount || 0, issue: (typeof c.issue === 'string' ? c.issue : ''), services: c.services || [], raw: (typeof c.raw === 'string' ? c.raw : '') } : null,
         queue: q.map((l) => ({ name: l.name, phone: l.phone, type: l.type, size: l.size || '', issue: (typeof l.issue === 'string' ? l.issue : ''), done: dialed.has(l.acct), cur: !!(c && c.acct === l.acct) })),
       }));
     } catch (e) {}
