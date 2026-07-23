@@ -46,13 +46,14 @@
 <main>
   <div class="card">
     <h2>Open control panel</h2>
-    <label for="ip">Your PC's local IP (same Wi-Fi)</label>
-    <input id="ip" inputmode="decimal" placeholder="192.168.10.83" autocomplete="off">
+    <label for="ip">Your PC's IP</label>
+    <input id="ip" inputmode="decimal" placeholder="100.64.18.35" autocomplete="off">
     <a id="go" class="btn go" href="#">OPEN CONTROL PANEL &rarr;</a>
-    <p class="hint">The bridge prints this IP when <code>aircall-autofill.bat</code> starts.
-       It's saved on this device, so next time just tap the button.</p>
+    <p class="hint"><b>Tailscale IP</b> (<code>100.x.x.x</code>) works from anywhere, including cell
+       data — just have Tailscale on. A <b>LAN IP</b> (<code>192.168.x.x</code>) only works on the
+       same Wi-Fi. Saved on this device, so next time just tap the button.</p>
     <div class="warn">The control panel runs on your PC, not here — this page just launches it.
-       The bridge must be running and your phone on the same Wi-Fi.</div>
+       The bridge must be running, and your phone needs a route to the PC (Tailscale on, or same Wi-Fi).</div>
   </div>
 
   <div class="card">
