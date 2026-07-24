@@ -96,19 +96,26 @@ the resolve note:
 
 > Texting is currently disabled (`SEND_TEXTS = false` near the top of the userscript).
 
-## Sod texter (A/B campaign)
+## Text campaigns (`sod-texter.user.js`)
 
-A **separate** userscript (`sod-texter.user.js`) for a one-shot sod webworm text blast.
-Install it alongside the dialer; its panel appears **bottom-left** on the call log.
+A **separate** userscript with two campaigns, chosen by the tabs at the top of its panel
+(**bottom-left** on the call log). Install it alongside the dialer.
+
+- **🐛 Sod Webworm** — leads flagged sod webworm. **A/B test**: split 50/50 between a
+  *with-price* prompt (Surface Insect / Grub Killer for their lawn size) and a *no-price*
+  prompt, balanced across one-note vs multi-note.
+- **🍄 Lawn Disease** — leads flagged leaf spot / dollar spot. **Everyone gets the quote**
+  (Lawn Disease Curative/Preventer for their size). Dollar-spot leads get the dollar-spot
+  script, leaf-spot leads get the leaf-spot script.
+
+Each campaign keeps its **own** permanent ledger, so they're tracked separately.
 
 1. **BUILD LIST** — **reuses the dialer's scan** (the dialer publishes its enriched queue to
    shared page storage), so it's instant. It takes only `Sales Call - Tech Note` leads flagged
-   **sod webworm** — which already excludes anyone who has a surface insecticide — with their note
+   for the active campaign — already excluding anyone who has that treatment — with their note
    count and lawn size. Any tech lead the dialer hasn't classified yet is checked in the background
    (5 histories at once). **So run the dialer scan (`f`) first and let it finish.**
-2. It splits the qualifying leads **50/50** between two prompts — one **with the Surface
-   Insect / Grub Killer price** for their lawn size, one **without** — balanced so each
-   prompt gets an even share of one-note vs multi-note leads.
+2. It builds the plan for the active campaign (sod = A/B split; disease = all quoted).
 3. **Preview** every assignment (tap a name to see the exact message). Price leads with an
    unknown lawn size show a ⚠ so you can double-check.
 4. **TEXT ALL** texts each lead through the Aircall bridge, then logs a note in Bosco

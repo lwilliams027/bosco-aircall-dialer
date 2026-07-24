@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco Dialer
 // @namespace    local.sa.dialer
-// @version      5.5
+// @version      5.6
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js
 // @description  Prioritized call queue via a local bridge: dial/hangup, global Up/Down, Esc pause (hang up)/resume (redial), no-answer condition lookup + auto note/resolve, phone control page.
@@ -37,7 +37,9 @@
         const b = (document.body ? document.body.innerText || '' : '').toLowerCase(); const s = {};
         if (b.includes('moles')) s.moles = 1;
         if (b.includes('sod webworm')) s.sod = 1;
-        if (b.includes('dollar spot') || b.includes('leaf spot')) s.disease = 1;
+        if (b.includes('dollar spot')) s.dollar = 1;
+        if (b.includes('leaf spot')) s.leaf = 1;
+        if (s.dollar || s.leaf) s.disease = 1;
         return s;
       };
       const t0 = Date.now();
@@ -63,7 +65,7 @@
         const tc = grabTC();
         if (within30) {
           Object.assign(found, c);
-          if (tc) { const low = tc.toLowerCase(); if (low.includes('moles')) found.moles = 1; if (low.includes('sod webworm')) found.sod = 1; if (low.includes('dollar spot') || low.includes('leaf spot')) found.disease = 1; }
+          if (tc) { const low = tc.toLowerCase(); if (low.includes('moles')) found.moles = 1; if (low.includes('sod webworm')) found.sod = 1; if (low.includes('dollar spot')) found.dollar = 1; if (low.includes('leaf spot')) found.leaf = 1; if (found.dollar || found.leaf) found.disease = 1; }
         }
         if (tc && !seenRaw.has(tc)) { seenRaw.add(tc); rawParts.push((d ? new Date(d).toLocaleDateString() : '?') + ' — ' + tc); } // list EVERY treatment's conditions
         console.log('[sa-scan] row', d ? new Date(d).toLocaleDateString() : '?', within30 ? '' : '(old)', '->', (tc || '').slice(0, 90));
@@ -92,7 +94,7 @@
       let best = 'none';
       if (found.moles && !hasTx.moles) best = 'moles';             // moles = leave alone (no text)
       else if (found.sod && !hasTx.sod) best = 'sod webworm';      // insect text
-      else if (found.disease && !hasTx.disease) best = 'leaf spot'; // disease text
+      else if (found.disease && !hasTx.disease) best = found.dollar ? 'dollar spot' : 'leaf spot'; // disease: keep which one
       const raw = rawParts.join('\n').slice(0, 4000); // every treatment's observed Target/Conditions text
       console.log('[sa-scan] result:', best);
       try { GM_setValue('sa_condition', { acct: String(acct), condition: best, size, services, raw: raw, ts: Date.now() }); } catch (e) {}
