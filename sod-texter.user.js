@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco Sod Texter
 // @namespace    local.sa.sodtexter
-// @version      1.9
+// @version      1.10
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sod-texter.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sod-texter.user.js
 // @description  Text campaigns for Tech Notes: Sod Webworm (A/B price vs no-price) and Lawn Disease (leaf/dollar spot, everyone quoted). Reuses the dialer's scan, previews, texts through the Aircall bridge, logs a note (leaves the call in Tech Notes to be called). Per-campaign permanent ledger prevents double-texting.
@@ -48,24 +48,26 @@
         if (cd) (cd.closest('a, button, li, [role="tab"]') || cd).click();
         const t1 = Date.now();
         while (Date.now() - t1 < 8000 && !document.querySelector('a[href*="/Customer/Program/Index/"]')) await sleep(300);
-        const t2 = Date.now();                                        // wait for the property/size panel to render a number
-        while (Date.now() - t2 < 5000 && !/\d/.test(((document.querySelector('#DetailProperty') || {}).innerText || ''))) await sleep(250);
+        const t2 = Date.now();                                        // wait for the "Size: X 1000 sq ft" field to render
+        while (Date.now() - t2 < 5000 && !/\d[\d.,]*\s*1[,\s]?000\s*sq/i.test(document.body.textContent || '')) await sleep(250);
         await sleep(400);
       } catch (e) {}
-      const svc = (document.body.innerText || '').toLowerCase();
+      const svc = (document.body.textContent || '').toLowerCase();
       const hasSodTx = /surface insecticide|grub killer|dylox|\binsecticide\b/.test(svc) ? 1 : 0;
       const hasDiseaseTx = /lawn disease|disease control|disease treatment|(?:prevent|curat)\w*\s*\w*\s*disease|disease\s*\w*\s*(?:prevent|curat)/.test(svc) ? 1 : 0;
+      // property size — the cell right after the "Size:" label, e.g. "9.0000 1000 sq ft (Online Measurement)"
       let size = ''; try {
-        const pickSize = (t) => {
-          let m = t.match(/(\d+(?:\.\d+)?)\s*[xX]?\s*1[,\s]?000\s*sq/i)
-               || t.match(/([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s*f)/i)
-               || t.match(/(?:lawn|turf|property|lot|yard)\D{0,18}(\d+(?:\.\d+)?)\s*k?/i);
+        const norm = (s) => {
+          let m = String(s).match(/(\d+(?:\.\d+)?)\s*1[,\s]?000\s*sq/i)
+               || String(s).match(/([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s*f)/i);
           if (!m) return '';
           let v = parseFloat(String(m[1]).replace(/,/g, '')); if (!v) return '';
           if (v >= 1000) v = v / 1000;
           return String(Math.round(v * 10) / 10);
         };
-        size = pickSize((document.querySelector('#DetailProperty') || {}).innerText || '') || pickSize(document.body.innerText || '');
+        const lab = Array.from(document.querySelectorAll('label, .col-sm-3, dt, th')).find((e) => /^\s*size\s*:?\s*$/i.test((e.textContent || '').trim()));
+        if (lab && lab.nextElementSibling) size = norm(lab.nextElementSibling.textContent || '');
+        if (!size) size = norm(document.body.textContent || '');
       } catch (e) {}
       console.log('[sx-scan]', acct, { sod, dollar, leaf, hasSodTx, hasDiseaseTx, size });
       try { GM_setValue('sx_condition', { acct: String(acct), sod, dollar, leaf, hasSodTx, hasDiseaseTx, size, ts: Date.now() }); } catch (e) {}
@@ -227,23 +229,24 @@
     if (sending) return;
     const st = readSharedQueue();
     const tech = (st ? st.q : []).filter((l) => l && l.type === 'tech' && l.acct);   // TECH NOTES ONLY
-    if (!tech.length) { plan = []; setStatus('No dialer scan found. Open the dialer, press f, let it finish scanning, then Build here.'); render(); return; }
+    if (!tech.length) { plan = []; setStatus('No leads yet. In the dialer press f to build the queue (it does NOT need to finish scanning conditions), then Build here.'); render(); return; }
     scanning = true; plan = []; skippedTexted = 0;
-    const seen = new Set(), qualifying = [];
-    // 1) instant: import straight from the dialer's detection for this campaign (already excludes anyone who has the treatment)
+    const seen = new Set(), qualifying = [], toScan = [];
+    // 1) import whatever the dialer already detected (instant); queue everything else to scan ourselves
     for (const l of tech) {
       if (seen.has(l.acct)) continue; seen.add(l.acct);
       if (alreadyTexted(l.acct)) { skippedTexted++; continue; }
       const m = camp().fromShared(l);
-      if (m.ok) qualifying.push(pickLead(l, null, m.issue));
+      if (m.ok) { qualifying.push(pickLead(l, null, m.issue)); continue; }
+      if (!l.act) toScan.push(l);                                     // dialer hasn't classified this one -> we scan it now
     }
     const capHit = () => cap > 0 && qualifying.length >= cap;
-    // 2) safety net: tech leads the dialer hasn't classified yet — check them in parallel (fast)
-    let gaps = capHit() ? [] : tech.filter((l) => (l.issue === undefined || l.issue === null) && !alreadyTexted(l.acct) && !qualifying.some((x) => x.acct === l.acct));
-    setStatus(`Dialer scan: ${qualifying.length} ${camp().label.toLowerCase()} ready${gaps.length ? `, checking ${gaps.length} unscanned…` : ''}`); render();
+    // 2) scan every un-classified tech note ourselves, in parallel, to find all conditions ASAP
+    let gaps = capHit() ? [] : toScan;
+    setStatus(`Imported ${qualifying.length}. Scanning ${gaps.length} tech notes for ${camp().label.toLowerCase()}…`); render();
     if (gaps.length) {
-      let gi = 0; const CONC = 5;                                     // 5 histories at once
-      const worker = async () => { while (scanning && gi < gaps.length && !capHit()) { const l = gaps[gi++]; const c = await lookupIssue(l.acct); const m = camp().gapMatch(c); if (m.ok) { qualifying.push(pickLead(l, c.size, m.issue)); render(); } } };
+      let gi = 0, done = 0; const CONC = 8;                           // 8 histories at once
+      const worker = async () => { while (scanning && gi < gaps.length && !capHit()) { const l = gaps[gi++]; const c = await lookupIssue(l.acct); const m = camp().gapMatch(c); if (m.ok) qualifying.push(pickLead(l, c.size, m.issue)); done++; setStatus(`Scanning ${done}/${gaps.length} — found ${qualifying.length}…`); render(); } };
       await Promise.all(Array.from({ length: Math.min(CONC, gaps.length) }, worker));
     }
     // size is the price — re-fetch it for anyone missing it (size must be correct before we quote)

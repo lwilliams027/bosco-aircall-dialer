@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco Dialer
 // @namespace    local.sa.dialer
-// @version      5.9
+// @version      5.10
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js
 // @description  Prioritized call queue via a local bridge: dial/hangup, global Up/Down, Esc pause (hang up)/resume (redial), no-answer condition lookup + auto note/resolve, phone control page.
@@ -74,29 +74,30 @@
         if (cd) (cd.closest('a, button, li, [role="tab"]') || cd).click();
         const t1 = Date.now();
         while (Date.now() - t1 < 8000 && !document.querySelector('a[href*="/Customer/Program/Index/"]')) await sleep(300);
-        const t2 = Date.now();                                        // wait for the property/size panel to actually render a number
-        while (Date.now() - t2 < 5000 && !/\d/.test(((document.querySelector('#DetailProperty') || {}).innerText || ''))) await sleep(250);
+        const t2 = Date.now();                                        // wait for the "Size: X 1000 sq ft" field to render
+        while (Date.now() - t2 < 5000 && !/\d[\d.,]*\s*1[,\s]?000\s*sq/i.test(document.body.textContent || '')) await sleep(250);
         await sleep(400);
       } catch (e) {}
-      const svc = (document.body.innerText || '').toLowerCase();
+      const svc = (document.body.textContent || '').toLowerCase();
       const hasTx = {
         moles: /mole/.test(svc),
         sod: /surface insecticide|insecticide/.test(svc),
         disease: /lawn disease|disease control|disease treatment|(?:prevent|curat)\w*\s*\w*\s*disease|disease\s*\w*\s*(?:prevent|curat)/.test(svc),
       };
-      // service/treatment list (LC, GP, ...) from #DetailServices, property size from #DetailProperty
       let services = []; try { services = [...new Set(Array.from(document.querySelectorAll('a[href*="/Customer/Program/Index/"]')).map((a) => (a.textContent || '').replace(/\s+/g, ' ').trim()).filter(Boolean))]; } catch (e) {}
+      // property size — value sits in the cell right after the "Size:" label, e.g. "9.0000 1000 sq ft (Online Measurement)"
       let size = ''; try {
-        const pickSize = (t) => {
-          let m = t.match(/(\d+(?:\.\d+)?)\s*[xX]?\s*1[,\s]?000\s*sq/i)               // "5 1000 SQ FT" (already in thousands)
-               || t.match(/([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s*f)/i)      // "5,000 sq ft"
-               || t.match(/(?:lawn|turf|property|lot|yard)\D{0,18}(\d+(?:\.\d+)?)\s*k?/i); // "Lawn Size 5" / "5k"
+        const norm = (s) => {
+          let m = String(s).match(/(\d+(?:\.\d+)?)\s*1[,\s]?000\s*sq/i)                // "9.0000 1000 sq ft" (already in thousands)
+               || String(s).match(/([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s*f)/i); // "9,000 sq ft"
           if (!m) return '';
           let v = parseFloat(String(m[1]).replace(/,/g, '')); if (!v) return '';
-          if (v >= 1000) v = v / 1000;                                                 // actual sq ft -> thousands
+          if (v >= 1000) v = v / 1000;
           return String(Math.round(v * 10) / 10);
         };
-        size = pickSize((document.querySelector('#DetailProperty') || {}).innerText || '') || pickSize(document.body.innerText || '');
+        const lab = Array.from(document.querySelectorAll('label, .col-sm-3, dt, th')).find((e) => /^\s*size\s*:?\s*$/i.test((e.textContent || '').trim()));
+        if (lab && lab.nextElementSibling) size = norm(lab.nextElementSibling.textContent || '');
+        if (!size) size = norm(document.body.textContent || '');
       } catch (e) {}
       console.log('[sa-scan] hasTreatment:', JSON.stringify(hasTx), '| size', size, '| services', services);
       // priority moles > sod webworm > disease; skip a condition if they already have its treatment
