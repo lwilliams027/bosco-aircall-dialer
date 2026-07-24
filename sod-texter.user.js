@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco Sod Texter
 // @namespace    local.sa.sodtexter
-// @version      1.5
+// @version      1.6
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sod-texter.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sod-texter.user.js
 // @description  Text campaigns for Tech Notes: Sod Webworm (A/B price vs no-price) and Lawn Disease (leaf/dollar spot, everyone quoted). Reuses the dialer's scan, previews, texts through the Aircall bridge, logs a note (leaves the call in Tech Notes to be called). Per-campaign permanent ledger prevents double-texting.
@@ -30,15 +30,11 @@
       let pend = 0; try { pend = GM_getValue('sx_pending_' + acct, 0); } catch (e) {}
       if (!pend || Date.now() - pend > 90000) return;                 // only when WE opened it
       try { GM_setValue('sx_pending_' + acct, 0); } catch (e) {}
-      const NOW = Date.now(), THIRTY = 30 * 864e5;
-      const rowDate = (r) => { const m = (r.innerText || '').match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/); return m ? new Date(+m[3], +m[1] - 1, +m[2]).getTime() : null; };
       const t0 = Date.now();
       while (Date.now() - t0 < 15000 && document.querySelectorAll('tr.dx-data-row').length === 0) await sleep(400);
       const rows = Array.from(document.querySelectorAll('tr.dx-data-row')).filter((r) => /\bL0[1-9]\b/i.test(r.innerText || ''));
       let sod = 0, dollar = 0, leaf = 0;
-      for (const r of rows) {
-        const d = rowDate(r);
-        if (d && (NOW - d) > THIRTY) continue;                        // condition flag = last 30 days only
+      for (const r of rows) {                                         // scan ALL treatment rows (all-time), not just recent
         r.click(); await sleep(700);
         const body = (document.body.innerText || '').toLowerCase();
         if (/sod\s*webworm/.test(body)) sod = 1;

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco Dialer
 // @namespace    local.sa.dialer
-// @version      5.6
+// @version      5.7
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js
 // @description  Prioritized call queue via a local bridge: dial/hangup, global Up/Down, Esc pause (hang up)/resume (redial), no-answer condition lookup + auto note/resolve, phone control page.
@@ -31,7 +31,6 @@
       if (!pend || Date.now() - pend > 90000) return;
       try { GM_setValue('sa_pending_' + acct, 0); } catch (e) {}
       console.log('[sa-scan] history scanner for', acct);
-      const NOW = Date.now(), THIRTY = 30 * 864e5; // last 30 days
       const rowDate = (r) => { const m = (r.innerText || '').match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/); return m ? new Date(+m[3], +m[1] - 1, +m[2]).getTime() : null; };
       const readConds = () => {
         const b = (document.body ? document.body.innerText || '' : '').toLowerCase(); const s = {};
@@ -59,18 +58,15 @@
       const found = {}; const rawParts = []; const seenRaw = new Set();
       for (const r of rows) {
         const d = rowDate(r);
-        const within30 = !d || (NOW - d) <= THIRTY;                  // 30d window gates the FLAG only, not the list
         r.click(); await sleep(800);
         const c = readConds();
         const tc = grabTC();
-        if (within30) {
-          Object.assign(found, c);
-          if (tc) { const low = tc.toLowerCase(); if (low.includes('moles')) found.moles = 1; if (low.includes('sod webworm')) found.sod = 1; if (low.includes('dollar spot')) found.dollar = 1; if (low.includes('leaf spot')) found.leaf = 1; if (found.dollar || found.leaf) found.disease = 1; }
-        }
+        Object.assign(found, c);                                     // flag the condition from ANY treatment (all-time, not just 30d)
+        if (tc) { const low = tc.toLowerCase(); if (low.includes('moles')) found.moles = 1; if (low.includes('sod webworm')) found.sod = 1; if (low.includes('dollar spot')) found.dollar = 1; if (low.includes('leaf spot')) found.leaf = 1; if (found.dollar || found.leaf) found.disease = 1; }
         if (tc && !seenRaw.has(tc)) { seenRaw.add(tc); rawParts.push((d ? new Date(d).toLocaleDateString() : '?') + ' — ' + tc); } // list EVERY treatment's conditions
-        console.log('[sa-scan] row', d ? new Date(d).toLocaleDateString() : '?', within30 ? '' : '(old)', '->', (tc || '').slice(0, 90));
+        console.log('[sa-scan] row', d ? new Date(d).toLocaleDateString() : '?', '->', (tc || '').slice(0, 90));
       }
-      console.log('[sa-scan] conditions(30d):', Object.keys(found).join(',') || 'none');
+      console.log('[sa-scan] conditions(all):', Object.keys(found).join(',') || 'none');
       // go to the Customer Details tab and wait for the Services panel to render
       try {
         const cd = Array.from(document.querySelectorAll('a, button, [role="tab"]')).find((el) => (el.textContent || '').trim().toLowerCase() === 'customer details')
