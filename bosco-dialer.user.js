@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco Dialer
 // @namespace    local.sa.dialer
-// @version      5.8
+// @version      5.9
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js
 // @description  Prioritized call queue via a local bridge: dial/hangup, global Up/Down, Esc pause (hang up)/resume (redial), no-answer condition lookup + auto note/resolve, phone control page.
@@ -74,7 +74,9 @@
         if (cd) (cd.closest('a, button, li, [role="tab"]') || cd).click();
         const t1 = Date.now();
         while (Date.now() - t1 < 8000 && !document.querySelector('a[href*="/Customer/Program/Index/"]')) await sleep(300);
-        await sleep(500);
+        const t2 = Date.now();                                        // wait for the property/size panel to actually render a number
+        while (Date.now() - t2 < 5000 && !/\d/.test(((document.querySelector('#DetailProperty') || {}).innerText || ''))) await sleep(250);
+        await sleep(400);
       } catch (e) {}
       const svc = (document.body.innerText || '').toLowerCase();
       const hasTx = {
@@ -84,7 +86,18 @@
       };
       // service/treatment list (LC, GP, ...) from #DetailServices, property size from #DetailProperty
       let services = []; try { services = [...new Set(Array.from(document.querySelectorAll('a[href*="/Customer/Program/Index/"]')).map((a) => (a.textContent || '').replace(/\s+/g, ' ').trim()).filter(Boolean))]; } catch (e) {}
-      let size = ''; try { const mm = ((document.querySelector('#DetailProperty') || document.body).innerText || '').match(/(\d+(?:\.\d+)?)\s*1000\s*sq\s*ft/i); if (mm) size = String(parseInt(mm[1], 10)); } catch (e) {}
+      let size = ''; try {
+        const pickSize = (t) => {
+          let m = t.match(/(\d+(?:\.\d+)?)\s*[xX]?\s*1[,\s]?000\s*sq/i)               // "5 1000 SQ FT" (already in thousands)
+               || t.match(/([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s*f)/i)      // "5,000 sq ft"
+               || t.match(/(?:lawn|turf|property|lot|yard)\D{0,18}(\d+(?:\.\d+)?)\s*k?/i); // "Lawn Size 5" / "5k"
+          if (!m) return '';
+          let v = parseFloat(String(m[1]).replace(/,/g, '')); if (!v) return '';
+          if (v >= 1000) v = v / 1000;                                                 // actual sq ft -> thousands
+          return String(Math.round(v * 10) / 10);
+        };
+        size = pickSize((document.querySelector('#DetailProperty') || {}).innerText || '') || pickSize(document.body.innerText || '');
+      } catch (e) {}
       console.log('[sa-scan] hasTreatment:', JSON.stringify(hasTx), '| size', size, '| services', services);
       // priority moles > sod webworm > disease; skip a condition if they already have its treatment
       let best = 'none';

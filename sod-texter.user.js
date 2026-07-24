@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco Sod Texter
 // @namespace    local.sa.sodtexter
-// @version      1.8
+// @version      1.9
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sod-texter.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sod-texter.user.js
 // @description  Text campaigns for Tech Notes: Sod Webworm (A/B price vs no-price) and Lawn Disease (leaf/dollar spot, everyone quoted). Reuses the dialer's scan, previews, texts through the Aircall bridge, logs a note (leaves the call in Tech Notes to be called). Per-campaign permanent ledger prevents double-texting.
@@ -48,12 +48,25 @@
         if (cd) (cd.closest('a, button, li, [role="tab"]') || cd).click();
         const t1 = Date.now();
         while (Date.now() - t1 < 8000 && !document.querySelector('a[href*="/Customer/Program/Index/"]')) await sleep(300);
+        const t2 = Date.now();                                        // wait for the property/size panel to render a number
+        while (Date.now() - t2 < 5000 && !/\d/.test(((document.querySelector('#DetailProperty') || {}).innerText || ''))) await sleep(250);
         await sleep(400);
       } catch (e) {}
       const svc = (document.body.innerText || '').toLowerCase();
       const hasSodTx = /surface insecticide|grub killer|dylox|\binsecticide\b/.test(svc) ? 1 : 0;
       const hasDiseaseTx = /lawn disease|disease control|disease treatment|(?:prevent|curat)\w*\s*\w*\s*disease|disease\s*\w*\s*(?:prevent|curat)/.test(svc) ? 1 : 0;
-      let size = ''; try { const mm = ((document.querySelector('#DetailProperty') || document.body).innerText || '').match(/(\d+(?:\.\d+)?)\s*1000\s*sq\s*ft/i); if (mm) size = String(parseInt(mm[1], 10)); } catch (e) {}
+      let size = ''; try {
+        const pickSize = (t) => {
+          let m = t.match(/(\d+(?:\.\d+)?)\s*[xX]?\s*1[,\s]?000\s*sq/i)
+               || t.match(/([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s*f)/i)
+               || t.match(/(?:lawn|turf|property|lot|yard)\D{0,18}(\d+(?:\.\d+)?)\s*k?/i);
+          if (!m) return '';
+          let v = parseFloat(String(m[1]).replace(/,/g, '')); if (!v) return '';
+          if (v >= 1000) v = v / 1000;
+          return String(Math.round(v * 10) / 10);
+        };
+        size = pickSize((document.querySelector('#DetailProperty') || {}).innerText || '') || pickSize(document.body.innerText || '');
+      } catch (e) {}
       console.log('[sx-scan]', acct, { sod, dollar, leaf, hasSodTx, hasDiseaseTx, size });
       try { GM_setValue('sx_condition', { acct: String(acct), sod, dollar, leaf, hasSodTx, hasDiseaseTx, size, ts: Date.now() }); } catch (e) {}
     })(histM[1]);
@@ -167,7 +180,16 @@
   let ledger = {};
   function loadLedger() { try { ledger = GM_getValue(camp().ledgerKey, {}) || {}; } catch (e) { ledger = {}; } }
   loadLedger();
-  const alreadyTexted = (acct) => Object.prototype.hasOwnProperty.call(ledger, acct);
+  // texted in ANY campaign counts — never text the same person twice, even across sod/disease
+  function textedInOther(acct) {
+    for (const k in CAMPAIGNS) {
+      if (CAMPAIGNS[k].ledgerKey === camp().ledgerKey) continue;
+      let lg = {}; try { lg = GM_getValue(CAMPAIGNS[k].ledgerKey, {}) || {}; } catch (e) {}
+      if (Object.prototype.hasOwnProperty.call(lg, acct)) return true;
+    }
+    return false;
+  }
+  const alreadyTexted = (acct) => Object.prototype.hasOwnProperty.call(ledger, acct) || textedInOther(acct);
   function recordTexted(lead, tag, noted) { ledger[lead.acct] = { name: lead.name, when: Date.now(), tag, noted: !!noted }; try { GM_setValue(camp().ledgerKey, ledger); } catch (e) {} }
 
   // ========================= state =========================
@@ -224,6 +246,14 @@
       const worker = async () => { while (scanning && gi < gaps.length && !capHit()) { const l = gaps[gi++]; const c = await lookupIssue(l.acct); const m = camp().gapMatch(c); if (m.ok) { qualifying.push(pickLead(l, c.size, m.issue)); render(); } } };
       await Promise.all(Array.from({ length: Math.min(CONC, gaps.length) }, worker));
     }
+    // size is the price — re-fetch it for anyone missing it (size must be correct before we quote)
+    const noSize = qualifying.filter((l) => !sizeKnown(l.size));
+    if (scanning && noSize.length) {
+      setStatus(`Fetching size for ${noSize.length}…`); render();
+      let si = 0; const CONC = 5;
+      const sw = async () => { while (scanning && si < noSize.length) { const l = noSize[si++]; const c = await lookupIssue(l.acct); if (c && c.size) l.size = c.size; render(); } };
+      await Promise.all(Array.from({ length: Math.min(CONC, noSize.length) }, sw));
+    }
     scanning = false;
     let finalLeads = qualifying;
     if (cap > 0 && finalLeads.length > cap) finalLeads = shuffle(finalLeads).slice(0, cap);
@@ -234,7 +264,7 @@
       : `No un-texted ${camp().label.toLowerCase()} tech notes (${skippedTexted} already texted).`);
     render();
     // once everything is grabbed, auto-start texting (5s arming window — uncheck Auto to cancel)
-    const hasUnsent = plan.some((p) => !alreadyTexted(p.lead.acct) && !p.sent);
+    const hasUnsent = plan.some((p) => !alreadyTexted(p.lead.acct) && !p.sent && p.sizeOk);
     if (autoText && hasUnsent) {
       for (let s = 5; s > 0 && autoText && !sending; s--) { setStatus(`Grabbed ${plan.length}. Auto-texting in ${s}s — uncheck Auto to cancel.`); render(); await sleep(1000); }
       if (autoText) await sendAll(true);
@@ -276,8 +306,11 @@
   // ========================= send =========================
   async function sendAll(auto) {
     if (sending || scanning || !plan.length) return;
-    const todo = plan.filter((p) => !alreadyTexted(p.lead.acct) && !p.sent);
-    if (!todo.length) { setStatus('Everyone in this plan has already been texted.'); render(); return; }
+    const todo = plan.filter((p) => !alreadyTexted(p.lead.acct) && !p.sent && p.sizeOk);   // never quote without a confirmed size
+    if (!todo.length) {
+      const held = plan.filter((p) => !p.sent && !p.sizeOk && !alreadyTexted(p.lead.acct)).length;
+      setStatus(held ? `Nothing sent — ${held} held for missing lawn size.` : 'Everyone in this plan has already been texted.'); render(); return;
+    }
     const ping = await bridge('/state', 'GET');
     if (ping == null) { const m = 'Bridge not reachable — start start-dialer.bat (Aircall logged in), then try again.'; if (auto) { setStatus(m); render(); } else alert(m); return; }
     if (!auto && !confirm(`Text ${todo.length} leads now — ${camp().label}?\n\n${camp().ab ? `Price prompt: ${todo.filter((p) => p.withPrice).length}\nNo-price prompt: ${todo.filter((p) => !p.withPrice).length}` : `Everyone gets the quote.`}\n\nEach one is texted, gets a note logged, and is recorded so they can't be texted again. They STAY in Tech Notes to be called.`)) return;
@@ -332,7 +365,7 @@
   #sxp .st{margin:10px 0;color:#9fb4c6;font-size:12px;min-height:16px}
   #sxp .sum{display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 8px}
   #sxp .tag{background:#1d2a36;border:1px solid #2c3e4d;border-radius:8px;padding:4px 8px;font-size:11px;font-weight:700;color:#cfe1ef}
-  #sxp .tag.p{color:#8fd3ef} #sxp .tag.n{color:#ffcf8f}
+  #sxp .tag.p{color:#8fd3ef} #sxp .tag.n{color:#ffcf8f} #sxp .tag.held{color:#ffb3ab;border-color:#7a2a2a}
   #sxp ul{list-style:none;margin:8px 0 0;padding:0}
   #sxp li{border:1px solid #26333f;border-radius:9px;padding:8px 9px;margin-bottom:6px;background:#101923}
   #sxp li.sent{border-color:#3a6b2a;background:#12240f} #sxp li.failed{border-color:#7a2a2a;background:#241010}
@@ -359,6 +392,7 @@
   function render() {
     const priceN = plan.filter((p) => p.withPrice).length, noN = plan.length - priceN;
     const one = plan.filter((p) => p.group === '1-note').length, multi = plan.length - one;
+    const heldN = plan.filter((p) => !p.sizeOk && !p.sent).length;
     const ab = camp().ab;
     panel.innerHTML = `
       <div class="hd"><b>${camp().emoji} ${esc(camp().label)} Texter</b><span class="x" id="sxmin">–</span></div>
@@ -378,14 +412,15 @@
           ${ab ? `<span class="tag p">💲 ${priceN} price</span><span class="tag n">no-price ${noN}</span>` : `<span class="tag p">all quoted</span>`}
           <span class="tag">1-note ${one}</span>
           <span class="tag">multi ${multi}</span>
+          ${heldN ? `<span class="tag held">⚠ ${heldN} need size</span>` : ''}
         </div>` : ''}
-        <button class="send" id="sxsend" ${(!plan.length || scanning) ? 'disabled' : ''}>${sending ? 'STOP TEXTING' : `TEXT ALL (${plan.filter((p) => !alreadyTexted(p.lead.acct) && !p.sent).length})`}</button>
+        <button class="send" id="sxsend" ${(!plan.length || scanning) ? 'disabled' : ''}>${sending ? 'STOP TEXTING' : `TEXT ALL (${plan.filter((p) => !alreadyTexted(p.lead.acct) && !p.sent && p.sizeOk).length})`}</button>
         <ul id="sxlist">
           ${plan.map((p, i) => `
             <li data-i="${i}" class="${p.sent ? 'sent' : ''}${p.failed ? ' failed' : ''}">
               <div class="ln">${esc(p.lead.name)}
                 <span class="pr ${p.chipCls}">${esc(p.chip)}</span></div>
-              <div class="meta">${esc(p.lead.phone)} · <span class="g">${p.group}</span>${p.priceStr ? ` · ${esc(p.priceStr)}${p.sizeOk ? '' : ' <span class="warn">⚠ size?</span>'}` : ''}${p.sent ? (p.noted ? ' · <span class="g">texted + noted ✓</span>' : ' · <span class="g">texted ✓</span>' + (p.noted === false ? ' · <span class="warn">note failed</span>' : '')) : ''}${p.failed ? ' · <span class="warn">text failed</span>' : ''}</div>
+              <div class="meta">${esc(p.lead.phone)} · <span class="g">${p.group}</span>${p.sizeOk ? (p.priceStr ? ` · ${esc(p.priceStr)}` : '') : ' · <span class="warn">⚠ NEEDS SIZE — held</span>'}${p.sent ? (p.noted ? ' · <span class="g">texted + noted ✓</span>' : ' · <span class="g">texted ✓</span>' + (p.noted === false ? ' · <span class="warn">note failed</span>' : '')) : ''}${p.failed ? ' · <span class="warn">text failed</span>' : ''}</div>
               <div class="msg">${esc(p.message)}</div>
             </li>`).join('')}
         </ul>
