@@ -111,14 +111,14 @@ Install it alongside the dialer; its panel appears **bottom-left** on the call l
    prompt gets an even share of one-note vs multi-note leads.
 3. **Preview** every assignment (tap a name to see the exact message). Price leads with an
    unknown lawn size show a ⚠ so you can double-check.
-4. **TEXT + RESOLVE ALL** texts each lead through the Aircall bridge, then **resolves them in
-   Bosco** — adds a note (`Sod webworm text sent (price/no price) - <date>`) and sets the call to
-   **Resolved**. Each person is written to a **permanent ledger** the moment they're texted, so
-   re-building or re-running never double-texts anyone. Anyone whose auto-resolve fails is flagged
-   `resolve failed` so you can close it by hand. "Reset ledger" (double-confirmed) starts fresh.
+4. **TEXT ALL** texts each lead through the Aircall bridge, then logs a note in Bosco
+   (`Sod webworm text sent (price/no price) - <date>`). It does **not** resolve the call — they
+   stay in Tech Notes so you still call them. The permanent **ledger** is what keeps them off the
+   texting list: once texted, re-building or re-running never texts them again. A failed note is
+   flagged `note failed`. "Reset ledger" (double-confirmed) starts fresh.
 
 > The bridge must be running and Aircall logged in. Set the cap to **0** to run the whole list.
-> Copy ledger exports the full texted list (with prompt + resolved status).
+> Copy ledger exports the full texted list (with prompt + noted status).
 
 ## Install / update the userscripts
 

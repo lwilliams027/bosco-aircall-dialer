@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Bosco Sod Texter
 // @namespace    local.sa.sodtexter
-// @version      1.3
+// @version      1.4
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sod-texter.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sod-texter.user.js
-// @description  A/B sod webworm text campaign. Reuses the dialer's scan for Tech Notes flagged sod webworm (skips anyone already on surface insecticide), splits 50/50 price vs no-price balanced by note count, previews, then texts through the Aircall bridge AND resolves each lead in Bosco (note + Resolved). Permanent ledger prevents double-texting.
+// @description  A/B sod webworm text campaign. Reuses the dialer's scan for Tech Notes flagged sod webworm (skips anyone already on surface insecticide), splits 50/50 price vs no-price balanced by note count, previews, then texts through the Aircall bridge and logs a note (leaves the call in Tech Notes to be called). Permanent ledger prevents double-texting.
 // @match        https://bosco.serviceassistant.com/*
 // @run-at       document-idle
 // @grant        GM_setClipboard
@@ -126,23 +126,12 @@
     const save = document.querySelector('#SaveNewNote'); if (save) save.click(); else { console.warn('[sx-note] #SaveNewNote not found'); return false; }
     await sleep(900); return true;
   }
-  async function resolveStatus() {
-    const st = document.querySelector('#callStatus'); if (!st) { console.warn('[sx-resolve] #callStatus not found'); return false; }
-    st.click(); await sleep(450); let done = false;
-    const sel = document.querySelector('.editable-container select, .editableform select');
-    if (sel) { const opt = Array.from(sel.options).find((o) => /^\s*resolved\s*$/i.test(o.text)); if (opt) { sel.value = opt.value; sel.dispatchEvent(new Event('change', { bubbles: true })); done = true; } }
-    if (!done) { const a = Array.from(document.querySelectorAll('.editable-container .dropdown-menu li a, .dropdown-menu.inner li a')).find((x) => /^\s*resolved\s*$/i.test(x.textContent)); if (a) { a.click(); done = true; } }
-    await sleep(200); const chk = document.querySelector('.editable-submit, .editableform button[type=submit]');
-    if (chk) chk.click(); else { console.warn('[sx-resolve] submit not found'); return false; }
-    await sleep(700); return true;
-  }
-  async function resolveLead(item) {
+  // log a note that the text went out — does NOT resolve the call, so they stay in Tech Notes to be called
+  async function noteLead(item) {
     const row = await findRow(item.lead.acct);
-    if (!row) { console.warn('[sx-resolve] row not found', item.lead.acct); return false; }
+    if (!row) { console.warn('[sx-note] row not found', item.lead.acct); return false; }
     const prev = notesSig(); openLeadRow(row); await waitForNotes(prev);
-    const noted = await addNoteAndSave(`Sod webworm text sent (${item.withPrice ? 'price' : 'no price'}) - ${todayStr()}`);
-    const resolved = await resolveStatus();
-    return noted && resolved;
+    return await addNoteAndSave(`Sod webworm text sent (${item.withPrice ? 'price' : 'no price'}) - ${todayStr()}`);
   }
 
   // Surface Insect / Grub Killer: $145 base (<=5k), +$18 per 1k over 5
@@ -157,7 +146,7 @@
   const LEDGER_KEY = 'sx_texted';                                     // { acct: {name, when, prompt} }
   let ledger = {}; try { ledger = GM_getValue(LEDGER_KEY, {}) || {}; } catch (e) { ledger = {}; }
   const alreadyTexted = (acct) => Object.prototype.hasOwnProperty.call(ledger, acct);
-  function recordTexted(lead, prompt, resolved) { ledger[lead.acct] = { name: lead.name, when: Date.now(), prompt, resolved: !!resolved }; try { GM_setValue(LEDGER_KEY, ledger); } catch (e) {} }
+  function recordTexted(lead, prompt, noted) { ledger[lead.acct] = { name: lead.name, when: Date.now(), prompt, noted: !!noted }; try { GM_setValue(LEDGER_KEY, ledger); } catch (e) {} }
 
   // ========================= state =========================
   let scanning = false, sending = false, plan = [], skippedTexted = 0;
@@ -228,8 +217,8 @@
     if (!todo.length) { setStatus('Everyone in this plan has already been texted.'); render(); return; }
     const ping = await bridge('/state', 'GET');
     if (ping == null) { alert('Bridge not reachable.\nStart the dialer bridge (start-dialer.bat) and make sure Aircall is logged in, then try again.'); return; }
-    if (!confirm(`Text and RESOLVE ${todo.length} leads now?\n\nPrice prompt: ${todo.filter((p) => p.withPrice).length}\nNo-price prompt: ${todo.filter((p) => !p.withPrice).length}\n\nEach one is texted, gets a note + Resolved in Bosco, and is recorded so they can't be texted again.`)) return;
-    sending = true; let sent = 0, failed = 0, unresolved = 0;
+    if (!confirm(`Text ${todo.length} leads now?\n\nPrice prompt: ${todo.filter((p) => p.withPrice).length}\nNo-price prompt: ${todo.filter((p) => !p.withPrice).length}\n\nEach one is texted, gets a note logged, and is recorded so they can't be texted again. They STAY in Tech Notes to be called.`)) return;
+    sending = true; let sent = 0, failed = 0, unnoted = 0;
     for (const item of todo) {
       if (!sending) break;
       if (alreadyTexted(item.lead.acct)) continue;                    // final guard
@@ -238,17 +227,17 @@
       const ok = resp != null && !/error|bad number|not found|fail/i.test(resp);
       if (!ok) { failed++; item.failed = true; console.warn('[sx-send] text failed', item.lead.acct, resp); render(); await sleep(1500); continue; }
       item.sent = true; sent++;
-      // resolve in Bosco: note + Resolved
-      setStatus(`Resolving ${item.lead.name}…`); render();
-      let resolved = false; try { resolved = await resolveLead(item); } catch (e) { console.error('[sx-resolve]', e); }
-      if (!resolved) unresolved++;
-      item.resolved = resolved;
-      recordTexted(item.lead, item.withPrice ? 'price' : 'noprice', resolved);   // recorded either way (they WERE texted)
+      // log a note (no status change — keeps them in Tech Notes)
+      setStatus(`Logging note for ${item.lead.name}…`); render();
+      let noted = false; try { noted = await noteLead(item); } catch (e) { console.error('[sx-note]', e); }
+      if (!noted) unnoted++;
+      item.noted = noted;
+      recordTexted(item.lead, item.withPrice ? 'price' : 'noprice', noted);   // recorded either way (they WERE texted)
       render();
       await sleep(1500);
     }
     sending = false;
-    setStatus(`Done — ${sent} texted${unresolved ? `, ${unresolved} need manual resolve` : ', all resolved'}${failed ? `, ${failed} text-failed` : ''}. Ledger: ${Object.keys(ledger).length}.`);
+    setStatus(`Done — ${sent} texted${unnoted ? `, ${unnoted} note-failed` : ', all noted'}${failed ? `, ${failed} text-failed` : ''}. Ledger: ${Object.keys(ledger).length}.`);
     render();
   }
 
@@ -318,13 +307,13 @@
           <span class="tag">1-note ${one}</span>
           <span class="tag">multi ${multi}</span>
         </div>` : ''}
-        <button class="send" id="sxsend" ${(!plan.length || sending || scanning) ? 'disabled' : ''}>${sending ? 'RUNNING…' : `TEXT + RESOLVE ALL (${plan.filter((p) => !alreadyTexted(p.lead.acct)).length})`}</button>
+        <button class="send" id="sxsend" ${(!plan.length || sending || scanning) ? 'disabled' : ''}>${sending ? 'TEXTING…' : `TEXT ALL (${plan.filter((p) => !alreadyTexted(p.lead.acct)).length})`}</button>
         <ul id="sxlist">
           ${plan.map((p, i) => `
             <li data-i="${i}" class="${p.sent ? 'sent' : ''}${p.failed ? ' failed' : ''}">
               <div class="ln">${esc(p.lead.name)}
                 <span class="pr ${p.withPrice ? 'p' : 'n'}">${p.withPrice ? 'PRICE' : 'NO PRICE'}</span></div>
-              <div class="meta">${esc(p.lead.phone)} · <span class="g">${p.group}</span>${p.withPrice ? ` · ${esc(surfacePrice(p.lead.size))}${p.sizeOk ? '' : ' <span class="warn">⚠ size?</span>'}` : ''}${p.sent ? (p.resolved ? ' · <span class="g">texted + resolved ✓</span>' : ' · <span class="g">texted ✓</span>' + (p.resolved === false ? ' · <span class="warn">resolve failed</span>' : '')) : ''}${p.failed ? ' · <span class="warn">text failed</span>' : ''}</div>
+              <div class="meta">${esc(p.lead.phone)} · <span class="g">${p.group}</span>${p.withPrice ? ` · ${esc(surfacePrice(p.lead.size))}${p.sizeOk ? '' : ' <span class="warn">⚠ size?</span>'}` : ''}${p.sent ? (p.noted ? ' · <span class="g">texted + noted ✓</span>' : ' · <span class="g">texted ✓</span>' + (p.noted === false ? ' · <span class="warn">note failed</span>' : '')) : ''}${p.failed ? ' · <span class="warn">text failed</span>' : ''}</div>
               <div class="msg">${esc(p.message)}</div>
             </li>`).join('')}
         </ul>
