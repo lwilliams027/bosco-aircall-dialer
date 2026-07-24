@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco Dialer
 // @namespace    local.sa.dialer
-// @version      5.3
+// @version      5.4
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js
 // @description  Prioritized call queue via a local bridge: dial/hangup, global Up/Down, Esc pause (hang up)/resume (redial), no-answer condition lookup + auto note/resolve, phone control page.
@@ -54,15 +54,19 @@
         return txt.replace(/[ \t]+/g, ' ').replace(/\n{2,}/g, '\n').trim().slice(0, 400);
       };
       const rows = Array.from(document.querySelectorAll('tr.dx-data-row')).filter((r) => /\bL0[1-9]\b/i.test(r.innerText || ''));
-      const found = {}; const rawParts = [];
+      const found = {}; const rawParts = []; const seenRaw = new Set();
       for (const r of rows) {
         const d = rowDate(r);
-        if (d && (NOW - d) > THIRTY) continue; // skip treatments older than 30 days
+        const within30 = !d || (NOW - d) <= THIRTY;                  // 30d window gates the FLAG only, not the list
         r.click(); await sleep(800);
-        const c = readConds(); Object.assign(found, c);
+        const c = readConds();
         const tc = grabTC();
-        if (tc) { const low = tc.toLowerCase(); if (low.includes('moles')) found.moles = 1; if (low.includes('sod webworm')) found.sod = 1; if (low.includes('dollar spot') || low.includes('leaf spot')) found.disease = 1; rawParts.push((d ? new Date(d).toLocaleDateString() : '?') + ' — ' + tc); }
-        console.log('[sa-scan] row', d ? new Date(d).toLocaleDateString() : '?', '->', (tc || '').slice(0, 90));
+        if (within30) {
+          Object.assign(found, c);
+          if (tc) { const low = tc.toLowerCase(); if (low.includes('moles')) found.moles = 1; if (low.includes('sod webworm')) found.sod = 1; if (low.includes('dollar spot') || low.includes('leaf spot')) found.disease = 1; }
+        }
+        if (tc && !seenRaw.has(tc)) { seenRaw.add(tc); rawParts.push((d ? new Date(d).toLocaleDateString() : '?') + ' — ' + tc); } // list EVERY treatment's conditions
+        console.log('[sa-scan] row', d ? new Date(d).toLocaleDateString() : '?', within30 ? '' : '(old)', '->', (tc || '').slice(0, 90));
       }
       console.log('[sa-scan] conditions(30d):', Object.keys(found).join(',') || 'none');
       // go to the Customer Details tab and wait for the Services panel to render
@@ -89,7 +93,7 @@
       if (found.moles && !hasTx.moles) best = 'moles';             // moles = leave alone (no text)
       else if (found.sod && !hasTx.sod) best = 'sod webworm';      // insect text
       else if (found.disease && !hasTx.disease) best = 'leaf spot'; // disease text
-      const raw = rawParts.join('\n').slice(0, 1600); // always keep observed Target/Conditions text
+      const raw = rawParts.join('\n').slice(0, 4000); // every treatment's observed Target/Conditions text
       console.log('[sa-scan] result:', best);
       try { GM_setValue('sa_condition', { acct: String(acct), condition: best, size, services, raw: raw, ts: Date.now() }); } catch (e) {}
     })(histM[1]);
