@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco Dialer
 // @namespace    local.sa.dialer
-// @version      5.10
+// @version      5.11
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js
 // @description  Prioritized call queue via a local bridge: dial/hangup, global Up/Down, Esc pause (hang up)/resume (redial), no-answer condition lookup + auto note/resolve, phone control page.
@@ -165,6 +165,9 @@
   const classify = (label) => CALLABLE.find((c) => c.test(label.toLowerCase())) || null;
   const realNotes = () => Array.from(document.querySelectorAll('div.note.container')).filter((n) => n.id !== 'NewNote' && !n.classList.contains('add-note') && !n.classList.contains('system') && n.offsetParent !== null);
   const noteCount = () => realNotes().length;
+  // durable "already texted" signal — the sod/disease campaign leaves one of these notes on the account
+  const TEXTED_NOTE = /text sent|quote texted/i;
+  const wasTexted = () => realNotes().some((n) => TEXTED_NOTE.test(n.textContent || ''));
   const notesSig = () => realNotes().map((n) => n.id).join(',');
   function scrapeNotesList() {
     return realNotes().map((n) => {
@@ -192,7 +195,7 @@
     try {
       localStorage.setItem('sa_shared_queue', JSON.stringify({ ts: Date.now(), q: callQueue.map((l) => ({
         acct: l.acct, name: l.name, phone: l.phone, e164: l.e164, type: l.type, noteCount: l.noteCount,
-        issue: (typeof l.issue === 'string' ? l.issue : (l.issue === null ? null : undefined)), size: l.size || '', act: l.act || undefined,
+        issue: (typeof l.issue === 'string' ? l.issue : (l.issue === null ? null : undefined)), size: l.size || '', act: l.act || undefined, texted: l.texted || undefined,
       })) }));
     } catch (e) {}
   }
@@ -251,7 +254,7 @@
         const cat = classify(getLabel(row));
         if (!cat) { seenAccts.add(acct); others.push({ ...leadInfo(row), label: getLabel(row) }); renderPanel(); continue; }
         const prev = notesSig(); openLead(row); await waitForLoad(prev); seenAccts.add(acct);
-        const lead = { ...leadInfo(row), label: getLabel(row), type: cat.type, noteCount: noteCount() };
+        const lead = { ...leadInfo(row), label: getLabel(row), type: cat.type, noteCount: noteCount(), texted: wasTexted() };
         if (issueMap[acct] !== undefined) lead.issue = issueMap[acct];
         callQueue.push(lead);
         renderPanel(); badge(`Scanning — queue ${callQueue.length} · log ${others.length} · scanned ${seenAccts.size}`, '#7BBF43'); await sleep(70);

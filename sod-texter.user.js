@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco Sod Texter
 // @namespace    local.sa.sodtexter
-// @version      1.10
+// @version      1.11
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sod-texter.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sod-texter.user.js
 // @description  Text campaigns for Tech Notes: Sod Webworm (A/B price vs no-price) and Lawn Disease (leaf/dollar spot, everyone quoted). Reuses the dialer's scan, previews, texts through the Aircall bridge, logs a note (leaves the call in Tech Notes to be called). Per-campaign permanent ledger prevents double-texting.
@@ -235,7 +235,7 @@
     // 1) import whatever the dialer already detected (instant); queue everything else to scan ourselves
     for (const l of tech) {
       if (seen.has(l.acct)) continue; seen.add(l.acct);
-      if (alreadyTexted(l.acct)) { skippedTexted++; continue; }
+      if (alreadyTexted(l.acct) || l.texted) { skippedTexted++; continue; }   // l.texted = the account already has a "texted" note
       const m = camp().fromShared(l);
       if (m.ok) { qualifying.push(pickLead(l, null, m.issue)); continue; }
       if (!l.act) toScan.push(l);                                     // dialer hasn't classified this one -> we scan it now
