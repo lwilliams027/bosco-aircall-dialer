@@ -88,6 +88,8 @@ body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.4 -apple-system,
 header{position:sticky;top:0;z-index:10;background:#0c131b;border-bottom:1px solid var(--line);
   padding:11px 16px;display:flex;align-items:center;justify-content:space-between}
 header b{font-size:16px;letter-spacing:.3px}
+header .hb{background:#1b2632;border:1px solid var(--line);color:#8fd3ef;font-size:12px;font-weight:800;
+  padding:7px 13px;border-radius:9px;margin-left:auto;margin-right:12px}
 #dot{font-size:12px;color:var(--dim);display:flex;align-items:center;gap:6px}
 #dot::before{content:"";width:9px;height:9px;border-radius:50%;background:#556}
 #dot.on::before{background:var(--grn)} #dot.off::before{background:var(--red)}
@@ -102,33 +104,25 @@ header b{font-size:16px;letter-spacing:.3px}
 .cname{font-size:26px;font-weight:800;margin:8px 0 2px;line-height:1.1}
 .cphone{font-size:20px;font-weight:700;color:#dbe9f4}
 .cmeta{color:var(--dim);font-size:13px;margin-top:3px}
-.cissue{display:inline-block;margin-top:10px;background:var(--red);color:#fff;font-weight:800;font-size:15px;
-  padding:6px 12px;border-radius:9px;text-transform:uppercase;letter-spacing:.3px}
-.ctreat{margin-top:10px;display:flex;flex-wrap:wrap;gap:6px}
-.tchip{background:#213445;border:1px solid #2f4759;color:#cfe1ef;font-size:12px;padding:3px 9px;border-radius:14px}
-.craw{margin-top:10px;background:#0f1720;border:1px solid #2a4056;border-radius:10px;padding:10px;
-  color:#cfe1ef;font-size:12.5px;white-space:pre-wrap;max-height:180px;overflow:auto}
-.craw .rl{color:#8fc7e8;font-weight:700;margin-bottom:3px}
 .noneu{color:var(--dim);text-align:center;padding:22px 0}
 
 /* buttons */
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.three{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px}
 button{border:0;border-radius:14px;font-weight:800;color:#fff;cursor:pointer;font-family:inherit}
-.big{padding:22px 8px;font-size:17px} .sm{padding:13px 6px;font-size:13px;letter-spacing:.3px}
+.big{padding:22px 8px;font-size:17px}
 .up{background:var(--grn);color:#08320f} .down{background:var(--red)} .resolve{background:var(--blue)}
-.start{background:#22303c} .pause{background:var(--amb);color:#3a2600} .stop{background:#33212a;color:#ffb3ab}
 button:active{filter:brightness(1.22)}
-.price-btn{width:100%;margin-top:12px;padding:16px;font-size:16px;background:#123a4d;color:#8fd3ef;
-  border:1px solid #1d5871;border-radius:14px}
-.util{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
-.hold-btn{padding:14px;font-size:14px;background:#3a2e12;color:#ffd28a;border:1px solid #5a4520;border-radius:14px}
-.hold-btn.act{background:#7BBF43;color:#08320f;border-color:#7BBF43}
-.nc-btn{padding:14px;font-size:14px;background:#22303c;color:#cfe1ef;border:1px solid #33475a;border-radius:14px}
+/* quiet control bar */
+.bar{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:10px}
+.bb{padding:13px 2px;font-size:11px;letter-spacing:.3px;background:#1b2632;color:#9fb4c6;
+  border:1px solid var(--line);border-radius:11px}
+.bb.act{background:var(--amb);color:#3a2600;border-color:var(--amb)}
+.bb.hot{color:#e08a80}
+.bb:disabled{opacity:.32;cursor:default}
 
 /* view buttons + sections */
-.viewbtns{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:12px}
-.vb{padding:11px 4px;font-size:12.5px;font-weight:700;background:#22303c;color:#cfe1ef;border:1px solid #33475a;border-radius:10px}
+.viewbtns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}
+.vb{padding:12px 4px;font-size:13px;font-weight:700;background:#22303c;color:#cfe1ef;border:1px solid #33475a;border-radius:10px}
 .vb.on{background:var(--blue);color:#fff;border-color:var(--blue)}
 .vsec{margin-top:10px;background:#0f1720;border:1px solid #2a4056;border-radius:10px;padding:10px;max-height:260px;overflow:auto}
 .note{padding:6px 0;border-bottom:1px solid #22303c;font-size:13px} .note:last-child{border-bottom:0}
@@ -138,9 +132,11 @@ button:active{filter:brightness(1.22)}
 .empty{color:var(--dim)}
 
 /* queue */
-.qhead{display:flex;align-items:center;justify-content:space-between;margin:18px 4px 8px}
+.qhead{display:flex;align-items:center;gap:10px;margin:20px 4px 8px}
 .qhead .t{font-size:13px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:#8fc7e8}
-.qhead .c{color:var(--dim);font-size:13px}
+.qhead .c{color:var(--dim);font-size:13px;margin-left:auto}
+.qhead .tg{background:#1b2632;border:1px solid var(--line);color:#9fb4c6;font-size:11px;font-weight:800;
+  padding:6px 11px;border-radius:8px}
 ol{list-style:none;margin:0;padding:0}
 li{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:11px 12px;margin-bottom:8px;display:flex;align-items:center;gap:8px}
 li.done{opacity:.4} li.done .nm{text-decoration:line-through}
@@ -170,7 +166,7 @@ li.cur{border-color:var(--blue);background:#16324a}
 .pr{text-align:right;white-space:nowrap} .pp{font-weight:800;font-size:17px;color:var(--grn)} .pt{display:block;color:var(--dim);font-size:12px}
 </style></head><body>
 
-<header><b>Dialer</b><span id="dot">connecting...</span></header>
+<header><b>Dialer</b><button class="hb" onclick="openPrice()">PRICES</button><span id="dot">connecting...</span></header>
 
 <div class="wrap">
   <div class="cur hide" id="cur">
@@ -179,9 +175,8 @@ li.cur{border-color:var(--blue);background:#16324a}
     <div class="cphone" id="cph"></div>
     <div class="cmeta" id="cmeta"></div>
     <div class="viewbtns">
-      <button class="vb" id="vbn" onclick="toggleView('vnotes')">View Notes</button>
+      <button class="vb" id="vbn" onclick="toggleView('vnotes')">Notes</button>
       <button class="vb" id="vbt" onclick="toggleView('vtreat')">Treatments</button>
-      <button class="vb" onclick="openPrice()">Price Chart</button>
     </div>
     <div class="vsec" id="vnotes" style="display:none"></div>
     <div class="vsec" id="vtreat" style="display:none"></div>
@@ -192,19 +187,15 @@ li.cur{border-color:var(--blue);background:#16324a}
     <button class="big up" id="b1" onclick="cmd('up')">&#9650; ANSWERED</button>
     <button class="big down" id="b2" onclick="act2()">&#9660; NO ANSWER</button>
   </div>
-  <div class="three">
-    <button class="sm start" onclick="cmd('start')">START</button>
-    <button class="sm pause" onclick="cmd('pause')">PAUSE</button>
-    <button class="sm stop" onclick="cmd('stop')">STOP</button>
+  <div class="bar">
+    <button class="bb" onclick="cmd('start')">START</button>
+    <button class="bb" id="bhold" onclick="cmd('hold')">&#128222; HOLD</button>
+    <button class="bb" onclick="cmd('pause')">PAUSE</button>
+    <button class="bb" onclick="fetch('/newconv',{method:'POST'}).catch(function(){})">&#8635; RESET</button>
+    <button class="bb hot" onclick="cmd('stop')">STOP</button>
   </div>
 
-  <div class="util">
-    <button class="hold-btn" id="bhold" onclick="cmd('hold')">&#128222; GETTING A CALL</button>
-    <button class="nc-btn" onclick="fetch('/newconv',{method:'POST'}).catch(function(){})">&#8635; RESET DIAL (Alt+N)</button>
-  </div>
-  <button class="price-btn" onclick="openPrice()">&#128181; PRICE SHEET</button>
-
-  <div class="qhead"><span class="t">Queue</span><span class="c" id="qc">-</span></div>
+  <div class="qhead"><span class="t">Queue</span><span class="c" id="qc">-</span><button class="tg" id="qtg" onclick="toggleQ()">Show all</button></div>
   <ol id="q"></ol>
 </div>
 
@@ -224,6 +215,8 @@ function openPrice(){document.getElementById('ps').classList.add('open');}
 function closePrice(){document.getElementById('ps').classList.remove('open');}
 var answered=false;
 function act2(){ if(answered){cmd('resolve');}else{cmd('down');} }
+var showAllQ=false,QN=8;
+function toggleQ(){showAllQ=!showAllQ;tick();}
 var openView='';
 function toggleView(id){
  openView=(openView===id)?'':id;
@@ -276,7 +269,7 @@ function renderPrices(){
 function tick(){
  fetch('/state').then(function(r){return r.json();}).then(function(s){
   document.getElementById('dot').className='on';document.getElementById('dot').textContent='connected';
-  var bh=document.getElementById('bhold');if(s.paused){bh.innerHTML='&#9654; RESUME';bh.className='hold-btn act';}else{bh.innerHTML='&#128222; GETTING A CALL';bh.className='hold-btn';}
+  var bh=document.getElementById('bhold');if(s.paused){bh.innerHTML='&#9654; RESUME';bh.className='bb act';}else{bh.innerHTML='&#128222; HOLD';bh.className='bb';}
   document.getElementById('qc').textContent=(s.left||0)+' left / '+(s.total||0)+(s.paused?' - PAUSED':'');
   var c=s.cur,box=document.getElementById('cur'),none=document.getElementById('none');
   if(c){
@@ -301,7 +294,11 @@ function tick(){
    var b1=document.getElementById('b1'),b2=document.getElementById('b2');
    b1.innerHTML='&#9650; ANSWERED';b1.className='big up';b2.innerHTML='&#9660; NO ANSWER';b2.className='big down'; }
   var q=document.getElementById('q');q.innerHTML='';
-  (s.queue||[]).forEach(function(l){
+  var full=s.queue||[];
+  var pend=full.filter(function(l){return !l.done;});
+  var list=showAllQ?full:pend.slice(0,QN);
+  document.getElementById('qtg').textContent=showAllQ?('Up next ('+Math.min(QN,pend.length)+')'):('Show all ('+full.length+')');
+  list.forEach(function(l){
    var li=document.createElement('li');li.className=(l.done?'done ':'')+(l.cur?'cur':'');
    li.innerHTML='<span class="chip '+(l.type==='tech'?'tech':'cxl')+'">'+(l.type==='tech'?'T':'C')+'</span>'+
     (l.size?'<span class="qsz">'+esc(l.size)+'</span>':'')+
