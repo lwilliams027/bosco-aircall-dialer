@@ -101,9 +101,11 @@ the resolve note:
 A **separate** userscript (`sod-texter.user.js`) for a one-shot sod webworm text blast.
 Install it alongside the dialer; its panel appears **bottom-left** on the call log.
 
-1. **SCAN TECH NOTES** — walks every `Sales Call - Tech Note` lead, opens each history,
-   detects sod webworm in the last 30 days, and **skips anyone who already has a surface
-   insecticide**. Also reads note count and lawn size.
+1. **BUILD LIST** — **reuses the dialer's scan** (the dialer publishes its enriched queue to
+   shared page storage), so it's instant. It takes only `Sales Call - Tech Note` leads flagged
+   **sod webworm** — which already excludes anyone who has a surface insecticide — with their note
+   count and lawn size. Any tech lead the dialer hasn't classified yet is checked in the background
+   (5 histories at once). **So run the dialer scan (`f`) first and let it finish.**
 2. It splits the qualifying leads **50/50** between two prompts — one **with the Surface
    Insect / Grub Killer price** for their lawn size, one **without** — balanced so each
    prompt gets an even share of one-note vs multi-note leads.

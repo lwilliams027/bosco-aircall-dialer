@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco Dialer
 // @namespace    local.sa.dialer
-// @version      5.4
+// @version      5.5
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js
 // @description  Prioritized call queue via a local bridge: dial/hangup, global Up/Down, Esc pause (hang up)/resume (redial), no-answer condition lookup + auto note/resolve, phone control page.
@@ -168,9 +168,18 @@
   const STORE_KEY = 'sa_queue';
   const STALE_MS = 20 * 3600e3;
   let saveTimer = null;
+  // publish a compact enriched queue to page localStorage so the sod-texter (a separate script) can reuse this scan
+  function publishShared() {
+    try {
+      localStorage.setItem('sa_shared_queue', JSON.stringify({ ts: Date.now(), q: callQueue.map((l) => ({
+        acct: l.acct, name: l.name, phone: l.phone, e164: l.e164, type: l.type, noteCount: l.noteCount,
+        issue: (typeof l.issue === 'string' ? l.issue : (l.issue === null ? null : undefined)), size: l.size || '',
+      })) }));
+    } catch (e) {}
+  }
   function saveState() {
     if (saveTimer) return;
-    saveTimer = setTimeout(() => { saveTimer = null; try { GM_setValue(STORE_KEY, { q: callQueue.map(({ row, ...r }) => r), o: others.map(({ row, ...r }) => r), d: Array.from(dialed), ts: Date.now() }); } catch (e) {} }, 1200);
+    saveTimer = setTimeout(() => { saveTimer = null; try { GM_setValue(STORE_KEY, { q: callQueue.map(({ row, ...r }) => r), o: others.map(({ row, ...r }) => r), d: Array.from(dialed), ts: Date.now() }); } catch (e) {} publishShared(); }, 1200);
   }
   function loadState() {
     try {
@@ -247,7 +256,7 @@
       l.issue = null; renderPanel();
       const r = await lookupCondition(l.acct);
       l.issue = r.condition; l.size = r.size || ''; l.services = r.services || []; l.raw = r.raw || '';
-      renderPanel();
+      renderPanel(); saveState();   // persist + publish shared queue as each lead is enriched
     }
     enriching = false;
   }

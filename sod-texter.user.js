@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco Sod Texter
 // @namespace    local.sa.sodtexter
-// @version      1.1
+// @version      1.2
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sod-texter.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sod-texter.user.js
 // @description  A/B sod webworm text campaign through the Aircall bridge. Scans every Tech Note, detects sod webworm (skips anyone already on surface insecticide), splits 50/50 price vs no-price balanced by note count, previews, then sends. Permanent ledger prevents double-texting.
@@ -65,7 +65,6 @@
 
   // ========================= helpers =========================
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const fmt = (d) => (d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : d);
   const firstName = (n) => (String(n || '').trim().split(/\s+/)[0] || 'there').replace(/[^A-Za-z'-]/g, '') || 'there';
   const shuffle = (a) => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 
@@ -78,16 +77,10 @@
     });
   }
 
-  const getRows = () => Array.from(document.querySelectorAll('div.callRow'));
-  const getLabel = (row) => (row.dataset.callstatus || (row.querySelector('.callStatus .badge, .callStatus .text') || {}).textContent || '').trim();
-  const isTech = (label) => label.toLowerCase().includes('tech note');
-  const realNotes = () => Array.from(document.querySelectorAll('div.note.container')).filter((n) => n.id !== 'NewNote' && !n.classList.contains('add-note') && !n.classList.contains('system') && n.offsetParent !== null);
-  const noteCount = () => realNotes().length;
-  const notesSig = () => realNotes().map((n) => n.id).join(',');
-  const openLead = (row) => (row.querySelector('.stronger') || row.querySelector('.listView') || row).click();
-  const leadInfo = (row) => { const digits = (row.dataset.customerphone || '').replace(/\D/g, ''); return { acct: row.dataset.accountnumber || '', name: row.dataset.customername || '(lead)', phone: fmt(digits), e164: '+1' + digits }; };
-  async function waitForLoad(prevSig) { const start = performance.now(); while (performance.now() - start < 2000) { await sleep(120); if (notesSig() !== prevSig) { await sleep(300); return true; } } return false; }
-  function scrollContainer() { const r = document.querySelector('div.callRow'); if (!r) return null; let el = r.parentElement; while (el && el !== document.body) { const s = getComputedStyle(el); if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && el.scrollHeight > el.clientHeight + 5) return el; el = el.parentElement; } return null; }
+  // reuse the dialer's scan: it publishes its enriched queue here (shared page localStorage)
+  const readSharedQueue = () => { try { const st = JSON.parse(localStorage.getItem('sa_shared_queue') || 'null'); return (st && Array.isArray(st.q)) ? st : null; } catch (e) { return null; } };
+  const pickLead = (l, sizeOverride) => ({ acct: l.acct, name: l.name || '(lead)', phone: l.phone || '', e164: l.e164 || '',
+    noteCount: (typeof l.noteCount === 'number' ? l.noteCount : 1), size: (sizeOverride != null && sizeOverride !== '') ? sizeOverride : (l.size || '') });
 
   // Surface Insect / Grub Killer: $145 base (<=5k), +$18 per 1k over 5
   function surfacePrice(size) { const z = parseFloat(size) || 0; const p = z <= 5 ? 145 : 145 + (z - 5) * 18; return '$' + Math.round(p); }
@@ -104,7 +97,7 @@
   function recordTexted(lead, prompt) { ledger[lead.acct] = { name: lead.name, when: Date.now(), prompt }; try { GM_setValue(LEDGER_KEY, ledger); } catch (e) {} }
 
   // ========================= state =========================
-  let scanning = false, sending = false, plan = [], skippedTexted = 0, scanned = 0;
+  let scanning = false, sending = false, plan = [], skippedTexted = 0;
   let cap = 10; try { cap = GM_getValue('sx_cap', 10); } catch (e) {}   // first-run cap; 0 = no limit
 
   function lookupSod(acct) {
@@ -118,44 +111,37 @@
     });
   }
 
-  // ========================= scan all tech notes =========================
+  // ========================= build the list from the dialer's scan =========================
   async function runScan() {
-    if (scanning) { scanning = false; return; }                      // second click = stop
+    if (scanning) { scanning = false; return; }                      // second click = stop gap-fill
     if (sending) return;
-    scanning = true; plan = []; skippedTexted = 0; scanned = 0;
-    const qualifying = [], seen = new Set();
-    setStatus('Scanning tech notes…'); render();
-    const sc = scrollContainer(); let idle = 0;
-    while (scanning) {
-      let didNew = false;
-      for (const row of getRows()) {
-        if (!scanning) break;
-        const label = getLabel(row);
-        const info = leadInfo(row);
-        if (!info.acct || seen.has(info.acct)) continue;
-        seen.add(info.acct); didNew = true;
-        if (!isTech(label)) continue;                                 // tech notes only
-        if (alreadyTexted(info.acct)) { skippedTexted++; render(); continue; }
-        // note count from the call log
-        const prev = notesSig(); openLead(row); await waitForLoad(prev);
-        const nc = noteCount();
-        scanned++; setStatus(`Scanning… ${scanned} checked, ${qualifying.length} sod so far`); render();
-        // condition lookup in a background tab
-        const c = await lookupSod(info.acct);
-        if (c.sod && !c.hasSodTx) {
-          qualifying.push({ ...info, noteCount: nc, size: c.size || '' });
-          if (cap > 0 && qualifying.length >= cap) { scanning = false; setStatus(`Hit the ${cap}-lead cap — stopping scan.`); break; }
-        }
-        await sleep(60);
-      }
-      const before = getRows().length;
-      if (sc) sc.scrollTop = sc.scrollHeight; else { const rs = getRows(); if (rs.length) rs[rs.length - 1].scrollIntoView({ block: 'end' }); }
-      await sleep(800);
-      if (!didNew && getRows().length <= before) { idle++; if (idle >= 2) break; } else idle = 0;
+    const st = readSharedQueue();
+    const tech = (st ? st.q : []).filter((l) => l && l.type === 'tech' && l.acct);   // TECH NOTES ONLY
+    if (!tech.length) { plan = []; setStatus('No dialer scan found. Open the dialer, press f, let it finish scanning, then Build here.'); render(); return; }
+    scanning = true; plan = []; skippedTexted = 0;
+    const seen = new Set(), qualifying = [];
+    // 1) instant: sod webworm leads the dialer already found (already excludes anyone who has the insecticide)
+    for (const l of tech) {
+      if (seen.has(l.acct)) continue; seen.add(l.acct);
+      if (alreadyTexted(l.acct)) { skippedTexted++; continue; }
+      if (l.issue === 'sod webworm') qualifying.push(pickLead(l));
+    }
+    const capHit = () => cap > 0 && qualifying.length >= cap;
+    // 2) safety net: tech leads the dialer hasn't classified yet — check them in parallel (fast)
+    let gaps = capHit() ? [] : tech.filter((l) => (l.issue === undefined || l.issue === null) && !alreadyTexted(l.acct) && !qualifying.some((x) => x.acct === l.acct));
+    setStatus(`Dialer scan: ${qualifying.length} sod ready${gaps.length ? `, checking ${gaps.length} unscanned…` : ''}`); render();
+    if (gaps.length) {
+      let gi = 0; const CONC = 5;                                     // 5 histories at once
+      const worker = async () => { while (scanning && gi < gaps.length && !capHit()) { const l = gaps[gi++]; const c = await lookupSod(l.acct); if (c.sod && !c.hasSodTx) { qualifying.push(pickLead(l, c.size)); render(); } } };
+      await Promise.all(Array.from({ length: Math.min(CONC, gaps.length) }, worker));
     }
     scanning = false;
-    plan = buildPlan(qualifying);
-    setStatus(plan.length ? `Ready — ${plan.length} to text (${skippedTexted} skipped, already texted)` : `No un-texted sod webworm tech notes found (${skippedTexted} already texted).`);
+    let finalLeads = qualifying;
+    if (cap > 0 && finalLeads.length > cap) finalLeads = shuffle(finalLeads).slice(0, cap);
+    plan = buildPlan(finalLeads);
+    setStatus(plan.length
+      ? `Ready — ${plan.length} to text${cap > 0 && qualifying.length > cap ? ` (capped from ${qualifying.length})` : ''}${skippedTexted ? `, ${skippedTexted} already texted` : ''}`
+      : `No un-texted sod webworm tech notes (${skippedTexted} already texted).`);
     render();
   }
 
@@ -242,7 +228,7 @@
   const panel = document.createElement('div');
   panel.id = 'sxp';
   document.body.appendChild(panel);
-  let statusMsg = 'Scan your tech notes to build the sod webworm list.';
+  let statusMsg = 'Build the sod webworm list from the dialer\'s scan.';
   const setStatus = (s) => { statusMsg = s; };
 
   function render() {
@@ -252,10 +238,10 @@
       <div class="hd"><b>🐛 Sod Texter</b><span class="x" id="sxmin">–</span></div>
       <div class="bd">
         <div class="row">
-          <button class="scan ${scanning ? 'on' : ''}" id="sxscan">${scanning ? 'STOP SCAN' : 'SCAN TECH NOTES'}</button>
+          <button class="scan ${scanning ? 'on' : ''}" id="sxscan">${scanning ? 'STOP' : 'BUILD LIST'}</button>
           <button class="scan" id="sxrescan" ${scanning || sending ? 'disabled' : ''}>RESET LIST</button>
         </div>
-        <div class="capln">Stop scan after <input id="sxcap" type="number" min="0" step="1" value="${cap}" ${scanning ? 'disabled' : ''}> leads <span class="dim">(0 = whole list)</span></div>
+        <div class="capln">Cap at <input id="sxcap" type="number" min="0" step="1" value="${cap}" ${scanning ? 'disabled' : ''}> leads <span class="dim">(0 = all)</span></div>
         <div class="st">${esc(statusMsg)}</div>
         ${plan.length ? `<div class="sum">
           <span class="tag">${plan.length} total</span>
