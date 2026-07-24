@@ -121,8 +121,9 @@ button:active{filter:brightness(1.22)}
 .bb:disabled{opacity:.32;cursor:default}
 
 /* view buttons + sections */
-.viewbtns{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-top:14px}
-.vb{padding:12px 3px;font-size:12.5px;font-weight:700;background:#22303c;color:#cfe1ef;border:1px solid #33475a;border-radius:10px}
+.viewbtns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}
+.vb{padding:13px 4px;font-size:13px;font-weight:700;background:#22303c;color:#cfe1ef;border:1px solid #33475a;border-radius:10px}
+.vb.price{background:#123a4d;color:#8fd3ef;border-color:#1d5871}
 .vb.on{background:var(--blue);color:#fff;border-color:var(--blue)}
 .vsec{margin-top:10px;background:#0f1720;border:1px solid #2a4056;border-radius:10px;padding:10px;max-height:260px;overflow:auto}
 .note{padding:6px 0;border-bottom:1px solid #22303c;font-size:13px} .note:last-child{border-bottom:0}
@@ -180,6 +181,7 @@ li.cur{border-color:var(--blue);background:#16324a}
       <button class="vb" id="vbn" onclick="toggleView('vnotes')">Notes</button>
       <button class="vb" id="vbt" onclick="toggleView('vtreat')">Treatments</button>
       <button class="vb" id="vbc" onclick="toggleView('vcond')">Conditions</button>
+      <button class="vb price" onclick="openPrice()">&#128181; Price</button>
     </div>
     <div class="vsec" id="vnotes" style="display:none"></div>
     <div class="vsec" id="vtreat" style="display:none"></div>
@@ -293,9 +295,10 @@ function tick(){
    document.getElementById('cmeta').textContent=(c.type==='tech'?'Tech Note':'CXL')+' - '+(c.notes||0)+' note'+((c.notes===1)?'':'s')+' - acct '+(c.acct||'');
    document.getElementById('vnotes').innerHTML=(c.notesList&&c.notesList.length)?c.notesList.map(function(n){return '<div class="note"><div class="nl">'+esc(n.when||'')+(n.who?(' - '+esc(n.who)):'')+'</div>'+esc(n.text||'')+'</div>';}).join(''):'<div class="empty">No notes on file.</div>';
    document.getElementById('vtreat').innerHTML=(c.services&&c.services.length)?c.services.map(function(x){return '<div class="svcrow">'+esc(x)+'</div>';}).join(''):'<div class="empty">No programs found.</div>';
-   var ch='';
-   if(c.issue&&c.issue!=='none'){ch+='<div class="condflag">'+esc(c.issue.toUpperCase())+'</div>';}
-   ch+=c.raw?('<div class="condraw">'+esc(c.raw)+'</div>'):'<div class="empty">No conditions listed on the account.</div>';
+   var hasIss=(c.issue&&c.issue!=='none'),ch='';
+   if(hasIss){ch+='<div class="condflag">'+esc(c.issue.toUpperCase())+'</div>';}
+   if(c.raw){ch+='<div class="condraw">'+esc(c.raw)+'</div>';}
+   else if(!hasIss){ch+='<div class="empty">No conditions listed on the account.</div>';}
    document.getElementById('vcond').innerHTML=ch;
    if(c.size&&String(c.acct)!==lastPricedAcct&&document.activeElement!==document.getElementById('psize')){lastPricedAcct=String(c.acct);document.getElementById('psize').value=c.size;renderPrices();}
   } else { box.classList.add('hide');none.style.display='';answered=false;

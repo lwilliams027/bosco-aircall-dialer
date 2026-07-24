@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco Dialer
 // @namespace    local.sa.dialer
-// @version      5.2
+// @version      5.3
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js
 // @description  Prioritized call queue via a local bridge: dial/hangup, global Up/Down, Esc pause (hang up)/resume (redial), no-answer condition lookup + auto note/resolve, phone control page.
@@ -89,7 +89,7 @@
       if (found.moles && !hasTx.moles) best = 'moles';             // moles = leave alone (no text)
       else if (found.sod && !hasTx.sod) best = 'sod webworm';      // insect text
       else if (found.disease && !hasTx.disease) best = 'leaf spot'; // disease text
-      const raw = best === 'none' ? rawParts.join('\n').slice(0, 1600) : '';
+      const raw = rawParts.join('\n').slice(0, 1600); // always keep observed Target/Conditions text
       console.log('[sa-scan] result:', best);
       try { GM_setValue('sa_condition', { acct: String(acct), condition: best, size, services, raw: raw, ts: Date.now() }); } catch (e) {}
     })(histM[1]);
