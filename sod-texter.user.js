@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco Sod Texter
 // @namespace    local.sa.sodtexter
-// @version      1.6
+// @version      1.7
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sod-texter.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sod-texter.user.js
 // @description  Text campaigns for Tech Notes: Sod Webworm (A/B price vs no-price) and Lawn Disease (leaf/dollar spot, everyone quoted). Reuses the dialer's scan, previews, texts through the Aircall bridge, logs a note (leaves the call in Tech Notes to be called). Per-campaign permanent ledger prevents double-texting.
@@ -152,8 +152,12 @@
   // ========================= campaigns =========================
   const CAMPAIGNS = {
     sod: { label: 'Sod Webworm', emoji: '🐛', issues: ['sod webworm'], ledgerKey: 'sx_texted', ab: true,
+      // import from the dialer's detection: prefer the per-condition flags, fall back to the issue tag
+      fromShared: (l) => l.act ? ({ ok: !!l.act.sod, issue: 'sod webworm' }) : ({ ok: l.issue === 'sod webworm', issue: 'sod webworm' }),
       gapMatch: (c) => ({ ok: !!(c.sod && !c.hasSodTx), issue: 'sod webworm' }) },
     disease: { label: 'Lawn Disease', emoji: '🍄', issues: ['leaf spot', 'dollar spot'], ledgerKey: 'sx_texted_disease', ab: false,
+      fromShared: (l) => l.act ? ({ ok: !!(l.act.dollar || l.act.leaf), issue: l.act.dollar ? 'dollar spot' : 'leaf spot' })
+        : ({ ok: ['leaf spot', 'dollar spot'].includes(l.issue), issue: l.issue }),
       gapMatch: (c) => ({ ok: !!((c.dollar || c.leaf) && !c.hasDiseaseTx), issue: c.dollar ? 'dollar spot' : 'leaf spot' }) },
   };
   let campaign = 'sod'; try { campaign = GM_getValue('sx_campaign', 'sod'); if (!CAMPAIGNS[campaign]) campaign = 'sod'; } catch (e) {}
@@ -189,12 +193,13 @@
     const tech = (st ? st.q : []).filter((l) => l && l.type === 'tech' && l.acct);   // TECH NOTES ONLY
     if (!tech.length) { plan = []; setStatus('No dialer scan found. Open the dialer, press f, let it finish scanning, then Build here.'); render(); return; }
     scanning = true; plan = []; skippedTexted = 0;
-    const seen = new Set(), qualifying = [], issues = camp().issues;
-    // 1) instant: leads the dialer already flagged for this campaign (already excludes anyone who has the treatment)
+    const seen = new Set(), qualifying = [];
+    // 1) instant: import straight from the dialer's detection for this campaign (already excludes anyone who has the treatment)
     for (const l of tech) {
       if (seen.has(l.acct)) continue; seen.add(l.acct);
       if (alreadyTexted(l.acct)) { skippedTexted++; continue; }
-      if (issues.includes(l.issue)) qualifying.push(pickLead(l));
+      const m = camp().fromShared(l);
+      if (m.ok) qualifying.push(pickLead(l, null, m.issue));
     }
     const capHit = () => cap > 0 && qualifying.length >= cap;
     // 2) safety net: tech leads the dialer hasn't classified yet — check them in parallel (fast)

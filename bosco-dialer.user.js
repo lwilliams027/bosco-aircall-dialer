@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco Dialer
 // @namespace    local.sa.dialer
-// @version      5.7
+// @version      5.8
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js
 // @description  Prioritized call queue via a local bridge: dial/hangup, global Up/Down, Esc pause (hang up)/resume (redial), no-answer condition lookup + auto note/resolve, phone control page.
@@ -92,8 +92,15 @@
       else if (found.sod && !hasTx.sod) best = 'sod webworm';      // insect text
       else if (found.disease && !hasTx.disease) best = found.dollar ? 'dollar spot' : 'leaf spot'; // disease: keep which one
       const raw = rawParts.join('\n').slice(0, 4000); // every treatment's observed Target/Conditions text
-      console.log('[sa-scan] result:', best);
-      try { GM_setValue('sa_condition', { acct: String(acct), condition: best, size, services, raw: raw, ts: Date.now() }); } catch (e) {}
+      // actionable conditions = found AND they don't already have that treatment (all of them, not just the top one)
+      const act = {
+        moles: (found.moles && !hasTx.moles) ? 1 : 0,
+        sod: (found.sod && !hasTx.sod) ? 1 : 0,
+        dollar: (found.dollar && !hasTx.disease) ? 1 : 0,
+        leaf: (found.leaf && !hasTx.disease) ? 1 : 0,
+      };
+      console.log('[sa-scan] result:', best, 'act:', JSON.stringify(act));
+      try { GM_setValue('sa_condition', { acct: String(acct), condition: best, size, services, raw: raw, act: act, ts: Date.now() }); } catch (e) {}
     })(histM[1]);
     return; // don't run the call-queue UI on the customer/history page
   }
@@ -171,7 +178,7 @@
     try {
       localStorage.setItem('sa_shared_queue', JSON.stringify({ ts: Date.now(), q: callQueue.map((l) => ({
         acct: l.acct, name: l.name, phone: l.phone, e164: l.e164, type: l.type, noteCount: l.noteCount,
-        issue: (typeof l.issue === 'string' ? l.issue : (l.issue === null ? null : undefined)), size: l.size || '',
+        issue: (typeof l.issue === 'string' ? l.issue : (l.issue === null ? null : undefined)), size: l.size || '', act: l.act || undefined,
       })) }));
     } catch (e) {}
   }
@@ -253,7 +260,7 @@
       if (!l) break;
       l.issue = null; renderPanel();
       const r = await lookupCondition(l.acct);
-      l.issue = r.condition; l.size = r.size || ''; l.services = r.services || []; l.raw = r.raw || '';
+      l.issue = r.condition; l.size = r.size || ''; l.services = r.services || []; l.raw = r.raw || ''; l.act = r.act || {};
       renderPanel(); saveState();   // persist + publish shared queue as each lead is enriched
     }
     enriching = false;
