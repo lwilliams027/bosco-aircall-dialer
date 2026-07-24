@@ -115,17 +115,21 @@ Each campaign keeps its **own** permanent ledger, so they're tracked separately.
    for the active campaign — already excluding anyone who has that treatment — with their note
    count and lawn size. Any tech lead the dialer hasn't classified yet is checked in the background
    (5 histories at once). **So run the dialer scan (`f`) first and let it finish.**
-2. It builds the plan for the active campaign (sod = A/B split; disease = all quoted).
-3. **Preview** every assignment (tap a name to see the exact message). Price leads with an
-   unknown lawn size show a ⚠ so you can double-check.
-4. **TEXT ALL** texts each lead through the Aircall bridge, then logs a note in Bosco
-   (`Sod webworm text sent (price/no price) - <date>`). It does **not** resolve the call — they
-   stay in Tech Notes so you still call them. The permanent **ledger** is what keeps them off the
-   texting list: once texted, re-building or re-running never texts them again. A failed note is
-   flagged `note failed`. "Reset ledger" (double-confirmed) starts fresh.
+2. It builds the plan for the active campaign (sod = A/B split; disease = all quoted). The built
+   list is **saved per campaign** — it survives reloads and loads first when you reopen the panel.
+3. With **Auto-text once the list is built** checked (default on), it starts texting on its own
+   after a 5-second arming window as soon as the build finishes — uncheck Auto to cancel, or hit
+   **STOP TEXTING** mid-run. Otherwise **preview** first (tap a name to see the exact message) and
+   press **TEXT ALL** yourself.
+4. Each lead is texted through the Aircall bridge, then gets a note in Bosco
+   (`… quote texted (price) - <date>`). It does **not** resolve the call — they stay in Tech Notes
+   so you still call them. The permanent **ledger** keeps them off the texting list: once texted,
+   re-building or re-running never texts them again. A failed note is flagged `note failed`.
+   "Reset ledger" (double-confirmed) starts fresh.
 
-> The bridge must be running and Aircall logged in. Set the cap to **0** to run the whole list.
-> Copy ledger exports the full texted list (with prompt + noted status).
+> **Lawn Disease is the default campaign.** The bridge must be running and Aircall logged in.
+> Cap defaults to **0** (whole list); set a number for a small test run. Copy ledger exports the
+> full texted list.
 
 ## Install / update the userscripts
 

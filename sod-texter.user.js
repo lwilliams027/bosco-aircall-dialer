@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco Sod Texter
 // @namespace    local.sa.sodtexter
-// @version      1.7
+// @version      1.8
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sod-texter.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sod-texter.user.js
 // @description  Text campaigns for Tech Notes: Sod Webworm (A/B price vs no-price) and Lawn Disease (leaf/dollar spot, everyone quoted). Reuses the dialer's scan, previews, texts through the Aircall bridge, logs a note (leaves the call in Tech Notes to be called). Per-campaign permanent ledger prevents double-texting.
@@ -151,16 +151,16 @@
 
   // ========================= campaigns =========================
   const CAMPAIGNS = {
-    sod: { label: 'Sod Webworm', emoji: '🐛', issues: ['sod webworm'], ledgerKey: 'sx_texted', ab: true,
-      // import from the dialer's detection: prefer the per-condition flags, fall back to the issue tag
-      fromShared: (l) => l.act ? ({ ok: !!l.act.sod, issue: 'sod webworm' }) : ({ ok: l.issue === 'sod webworm', issue: 'sod webworm' }),
-      gapMatch: (c) => ({ ok: !!(c.sod && !c.hasSodTx), issue: 'sod webworm' }) },
     disease: { label: 'Lawn Disease', emoji: '🍄', issues: ['leaf spot', 'dollar spot'], ledgerKey: 'sx_texted_disease', ab: false,
+      // import from the dialer's detection: prefer the per-condition flags, fall back to the issue tag
       fromShared: (l) => l.act ? ({ ok: !!(l.act.dollar || l.act.leaf), issue: l.act.dollar ? 'dollar spot' : 'leaf spot' })
         : ({ ok: ['leaf spot', 'dollar spot'].includes(l.issue), issue: l.issue }),
       gapMatch: (c) => ({ ok: !!((c.dollar || c.leaf) && !c.hasDiseaseTx), issue: c.dollar ? 'dollar spot' : 'leaf spot' }) },
+    sod: { label: 'Sod Webworm', emoji: '🐛', issues: ['sod webworm'], ledgerKey: 'sx_texted', ab: true,
+      fromShared: (l) => l.act ? ({ ok: !!l.act.sod, issue: 'sod webworm' }) : ({ ok: l.issue === 'sod webworm', issue: 'sod webworm' }),
+      gapMatch: (c) => ({ ok: !!(c.sod && !c.hasSodTx), issue: 'sod webworm' }) },
   };
-  let campaign = 'sod'; try { campaign = GM_getValue('sx_campaign', 'sod'); if (!CAMPAIGNS[campaign]) campaign = 'sod'; } catch (e) {}
+  let campaign = 'disease'; try { campaign = GM_getValue('sx_campaign', 'disease'); if (!CAMPAIGNS[campaign]) campaign = 'disease'; } catch (e) {}
   const camp = () => CAMPAIGNS[campaign];
 
   // ========================= permanent do-not-double-text ledger (per campaign) =========================
@@ -172,7 +172,21 @@
 
   // ========================= state =========================
   let scanning = false, sending = false, plan = [], skippedTexted = 0;
-  let cap = 10; try { cap = GM_getValue('sx_cap', 10); } catch (e) {}   // first-run cap; 0 = no limit
+  let cap = 0; try { cap = GM_getValue('sx_cap', 0); } catch (e) {}     // cap; 0 = no limit (whole list)
+  let autoText = true; try { autoText = GM_getValue('sx_auto', true); } catch (e) {} // auto-start texting once the build finishes
+
+  // ---- persist the built list per campaign (survives reloads; loaded first on open) ----
+  const planKey = () => 'sx_plan_' + campaign;
+  function savePlan() {
+    try { GM_setValue(planKey(), plan.map((p) => ({ acct: p.lead.acct, name: p.lead.name, phone: p.lead.phone, e164: p.lead.e164,
+      size: p.lead.size, issue: p.lead.issue, noteCount: p.lead.noteCount, withPrice: p.withPrice, sent: !!p.sent, noted: p.noted, failed: !!p.failed }))); } catch (e) {}
+  }
+  function loadPlan() {
+    try {
+      const saved = GM_getValue(planKey(), null);
+      plan = (saved && saved.length) ? saved.map((s) => { const it = mkItem({ acct: s.acct, name: s.name, phone: s.phone, e164: s.e164, size: s.size, issue: s.issue, noteCount: s.noteCount }, s.withPrice); it.sent = s.sent; it.noted = s.noted; it.failed = s.failed; return it; }) : [];
+    } catch (e) { plan = []; }
+  }
 
   function lookupIssue(acct) {
     return new Promise((resolve) => {
@@ -214,10 +228,17 @@
     let finalLeads = qualifying;
     if (cap > 0 && finalLeads.length > cap) finalLeads = shuffle(finalLeads).slice(0, cap);
     plan = buildPlan(finalLeads);
+    savePlan();
     setStatus(plan.length
       ? `Ready — ${plan.length} to text${cap > 0 && qualifying.length > cap ? ` (capped from ${qualifying.length})` : ''}${skippedTexted ? `, ${skippedTexted} already texted` : ''}`
       : `No un-texted ${camp().label.toLowerCase()} tech notes (${skippedTexted} already texted).`);
     render();
+    // once everything is grabbed, auto-start texting (5s arming window — uncheck Auto to cancel)
+    const hasUnsent = plan.some((p) => !alreadyTexted(p.lead.acct) && !p.sent);
+    if (autoText && hasUnsent) {
+      for (let s = 5; s > 0 && autoText && !sending; s--) { setStatus(`Grabbed ${plan.length}. Auto-texting in ${s}s — uncheck Auto to cancel.`); render(); await sleep(1000); }
+      if (autoText) await sendAll(true);
+    }
   }
 
   // ========================= build the plan (campaign-aware) =========================
@@ -253,13 +274,13 @@
   }
 
   // ========================= send =========================
-  async function sendAll() {
+  async function sendAll(auto) {
     if (sending || scanning || !plan.length) return;
-    const todo = plan.filter((p) => !alreadyTexted(p.lead.acct));
+    const todo = plan.filter((p) => !alreadyTexted(p.lead.acct) && !p.sent);
     if (!todo.length) { setStatus('Everyone in this plan has already been texted.'); render(); return; }
     const ping = await bridge('/state', 'GET');
-    if (ping == null) { alert('Bridge not reachable.\nStart the dialer bridge (start-dialer.bat) and make sure Aircall is logged in, then try again.'); return; }
-    if (!confirm(`Text ${todo.length} leads now — ${camp().label}?\n\n${camp().ab ? `Price prompt: ${todo.filter((p) => p.withPrice).length}\nNo-price prompt: ${todo.filter((p) => !p.withPrice).length}` : `Everyone gets the quote.`}\n\nEach one is texted, gets a note logged, and is recorded so they can't be texted again. They STAY in Tech Notes to be called.`)) return;
+    if (ping == null) { const m = 'Bridge not reachable — start start-dialer.bat (Aircall logged in), then try again.'; if (auto) { setStatus(m); render(); } else alert(m); return; }
+    if (!auto && !confirm(`Text ${todo.length} leads now — ${camp().label}?\n\n${camp().ab ? `Price prompt: ${todo.filter((p) => p.withPrice).length}\nNo-price prompt: ${todo.filter((p) => !p.withPrice).length}` : `Everyone gets the quote.`}\n\nEach one is texted, gets a note logged, and is recorded so they can't be texted again. They STAY in Tech Notes to be called.`)) return;
     sending = true; let sent = 0, failed = 0, unnoted = 0;
     for (const item of todo) {
       if (!sending) break;
@@ -267,7 +288,7 @@
       setStatus(`Texting ${sent + 1}/${todo.length} — ${item.lead.name}…`); render();
       const resp = await bridge('/text', 'POST', JSON.stringify({ number: item.lead.e164, message: item.message }));
       const ok = resp != null && !/error|bad number|not found|fail/i.test(resp);
-      if (!ok) { failed++; item.failed = true; console.warn('[sx-send] text failed', item.lead.acct, resp); render(); await sleep(1500); continue; }
+      if (!ok) { failed++; item.failed = true; console.warn('[sx-send] text failed', item.lead.acct, resp); savePlan(); render(); await sleep(1500); continue; }
       item.sent = true; sent++;
       // log a note (no status change — keeps them in Tech Notes)
       setStatus(`Logging note for ${item.lead.name}…`); render();
@@ -275,11 +296,11 @@
       if (!noted) unnoted++;
       item.noted = noted;
       recordTexted(item.lead, item.tag, noted);   // recorded either way (they WERE texted)
-      render();
+      savePlan(); render();
       await sleep(1500);
     }
-    sending = false;
-    setStatus(`Done — ${sent} texted${unnoted ? `, ${unnoted} note-failed` : ', all noted'}${failed ? `, ${failed} text-failed` : ''}. Ledger: ${Object.keys(ledger).length}.`);
+    sending = false; savePlan();
+    setStatus(`${sent} texted${unnoted ? `, ${unnoted} note-failed` : ''}${failed ? `, ${failed} text-failed` : ''}. ${camp().label} ledger: ${Object.keys(ledger).length}.`);
     render();
   }
 
@@ -306,6 +327,8 @@
   #sxp .capln{display:flex;align-items:center;gap:7px;margin-top:8px;color:#9fb4c6;font-size:11.5px}
   #sxp .capln input{width:58px;background:#0f1720;border:1px solid #2b3a48;border-radius:7px;color:#fff;padding:6px 8px;font-size:13px;font-weight:800;text-align:center}
   #sxp .capln .dim{opacity:.7}
+  #sxp .autoln{display:flex;align-items:center;gap:7px;margin-top:8px;color:#cfe1ef;font-size:12px;cursor:pointer;user-select:none}
+  #sxp .autoln input{width:16px;height:16px;accent-color:#7BBF43}
   #sxp .st{margin:10px 0;color:#9fb4c6;font-size:12px;min-height:16px}
   #sxp .sum{display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 8px}
   #sxp .tag{background:#1d2a36;border:1px solid #2c3e4d;border-radius:8px;padding:4px 8px;font-size:11px;font-weight:700;color:#cfe1ef}
@@ -348,6 +371,7 @@
           <button class="scan" id="sxrescan" ${scanning || sending ? 'disabled' : ''}>RESET LIST</button>
         </div>
         <div class="capln">Cap at <input id="sxcap" type="number" min="0" step="1" value="${cap}" ${scanning ? 'disabled' : ''}> leads <span class="dim">(0 = all)</span></div>
+        <label class="autoln"><input type="checkbox" id="sxauto" ${autoText ? 'checked' : ''}> Auto-text once the list is built</label>
         <div class="st">${esc(statusMsg)}</div>
         ${plan.length ? `<div class="sum">
           <span class="tag">${plan.length} total</span>
@@ -355,7 +379,7 @@
           <span class="tag">1-note ${one}</span>
           <span class="tag">multi ${multi}</span>
         </div>` : ''}
-        <button class="send" id="sxsend" ${(!plan.length || sending || scanning) ? 'disabled' : ''}>${sending ? 'TEXTING…' : `TEXT ALL (${plan.filter((p) => !alreadyTexted(p.lead.acct)).length})`}</button>
+        <button class="send" id="sxsend" ${(!plan.length || scanning) ? 'disabled' : ''}>${sending ? 'STOP TEXTING' : `TEXT ALL (${plan.filter((p) => !alreadyTexted(p.lead.acct) && !p.sent).length})`}</button>
         <ul id="sxlist">
           ${plan.map((p, i) => `
             <li data-i="${i}" class="${p.sent ? 'sent' : ''}${p.failed ? ' failed' : ''}">
@@ -372,11 +396,12 @@
         </div>
       </div>`;
     panel.querySelector('#sxmin').onclick = () => panel.classList.toggle('min');
-    panel.querySelectorAll('.camp').forEach((b) => { b.onclick = () => { if (sending || scanning) return; const k = b.dataset.c; if (k === campaign) return; campaign = k; try { GM_setValue('sx_campaign', k); } catch (e) {} loadLedger(); plan = []; setStatus(`${camp().label} — press BUILD LIST.`); render(); }; });
+    panel.querySelectorAll('.camp').forEach((b) => { b.onclick = () => { if (sending || scanning) return; const k = b.dataset.c; if (k === campaign) return; campaign = k; try { GM_setValue('sx_campaign', k); } catch (e) {} loadLedger(); loadPlan(); setStatus(plan.length ? `${camp().label}: ${plan.length} saved — TEXT ALL, or BUILD to refresh.` : `${camp().label} — press BUILD LIST.`); render(); }; });
     panel.querySelector('#sxscan').onclick = runScan;
-    panel.querySelector('#sxrescan').onclick = () => { plan = []; setStatus('List cleared. Build again to rebuild.'); render(); };
+    panel.querySelector('#sxrescan').onclick = () => { plan = []; savePlan(); setStatus('List cleared. Build again to rebuild.'); render(); };
     const capEl = panel.querySelector('#sxcap'); if (capEl) capEl.onchange = (e) => { cap = Math.max(0, parseInt(e.target.value, 10) || 0); try { GM_setValue('sx_cap', cap); } catch (err) {} };
-    panel.querySelector('#sxsend').onclick = sendAll;
+    const autoEl = panel.querySelector('#sxauto'); if (autoEl) autoEl.onchange = (e) => { autoText = e.target.checked; try { GM_setValue('sx_auto', autoText); } catch (err) {} };
+    panel.querySelector('#sxsend').onclick = () => { if (sending) { sending = false; setStatus('Stopping after this one…'); render(); } else sendAll(false); };
     panel.querySelector('#sxcopy').onclick = () => { try { GM_setClipboard(JSON.stringify(ledger, null, 2)); setStatus('Ledger copied to clipboard.'); render(); } catch (e) {} };
     panel.querySelector('#sxclear').onclick = () => {
       if (!confirm(`Reset the ${camp().label} do-not-text ledger?\n\nThis erases the record of ${Object.keys(ledger).length} texted people — they could be texted again. This cannot be undone.`)) return;
@@ -385,5 +410,7 @@
     };
     panel.querySelectorAll('#sxlist li').forEach((li) => { li.querySelector('.ln').onclick = () => li.classList.toggle('open'); });
   }
+  loadPlan();                                                          // restore the saved list first
+  if (plan.length) setStatus(`${camp().label}: ${plan.length} saved list restored — TEXT ALL, or BUILD to refresh.`);
   render();
 })();
