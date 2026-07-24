@@ -121,14 +121,16 @@ button:active{filter:brightness(1.22)}
 .bb:disabled{opacity:.32;cursor:default}
 
 /* view buttons + sections */
-.viewbtns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}
-.vb{padding:12px 4px;font-size:13px;font-weight:700;background:#22303c;color:#cfe1ef;border:1px solid #33475a;border-radius:10px}
+.viewbtns{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-top:14px}
+.vb{padding:12px 3px;font-size:12.5px;font-weight:700;background:#22303c;color:#cfe1ef;border:1px solid #33475a;border-radius:10px}
 .vb.on{background:var(--blue);color:#fff;border-color:var(--blue)}
 .vsec{margin-top:10px;background:#0f1720;border:1px solid #2a4056;border-radius:10px;padding:10px;max-height:260px;overflow:auto}
 .note{padding:6px 0;border-bottom:1px solid #22303c;font-size:13px} .note:last-child{border-bottom:0}
 .note .nl{color:#8fc7e8;font-size:11px;font-weight:700;margin-bottom:2px}
 .svcrow{padding:4px 0;font-size:13px;color:#cfe1ef}
-.condhdr{color:#ff9b9b;font-weight:700;font-size:12px;margin:8px 0 4px}
+.condflag{display:inline-block;background:var(--red);color:#fff;font-weight:800;font-size:12px;letter-spacing:.4px;
+  padding:5px 11px;border-radius:8px;margin-bottom:8px;text-transform:uppercase}
+.condraw{font-size:13px;color:#cfe1ef;white-space:pre-wrap;line-height:1.45}
 .empty{color:var(--dim)}
 
 /* queue */
@@ -177,9 +179,11 @@ li.cur{border-color:var(--blue);background:#16324a}
     <div class="viewbtns">
       <button class="vb" id="vbn" onclick="toggleView('vnotes')">Notes</button>
       <button class="vb" id="vbt" onclick="toggleView('vtreat')">Treatments</button>
+      <button class="vb" id="vbc" onclick="toggleView('vcond')">Conditions</button>
     </div>
     <div class="vsec" id="vnotes" style="display:none"></div>
     <div class="vsec" id="vtreat" style="display:none"></div>
+    <div class="vsec" id="vcond" style="display:none"></div>
   </div>
   <div class="noneu" id="none">Not on a call. Tap START.</div>
 
@@ -222,8 +226,10 @@ function toggleView(id){
  openView=(openView===id)?'':id;
  document.getElementById('vnotes').style.display=(openView==='vnotes')?'':'none';
  document.getElementById('vtreat').style.display=(openView==='vtreat')?'':'none';
+ document.getElementById('vcond').style.display=(openView==='vcond')?'':'none';
  document.getElementById('vbn').className='vb'+(openView==='vnotes'?' on':'');
  document.getElementById('vbt').className='vb'+(openView==='vtreat'?' on':'');
+ document.getElementById('vbc').className='vb'+(openView==='vcond'?' on':'');
 }
 
 var lastPricedAcct='';
@@ -286,9 +292,11 @@ function tick(){
    document.getElementById('cph').textContent=c.phone||'';
    document.getElementById('cmeta').textContent=(c.type==='tech'?'Tech Note':'CXL')+' - '+(c.notes||0)+' note'+((c.notes===1)?'':'s')+' - acct '+(c.acct||'');
    document.getElementById('vnotes').innerHTML=(c.notesList&&c.notesList.length)?c.notesList.map(function(n){return '<div class="note"><div class="nl">'+esc(n.when||'')+(n.who?(' - '+esc(n.who)):'')+'</div>'+esc(n.text||'')+'</div>';}).join(''):'<div class="empty">No notes on file.</div>';
-   var th=(c.services&&c.services.length)?c.services.map(function(x){return '<div class="svcrow">'+esc(x)+'</div>';}).join(''):'<div class="empty">No programs found.</div>';
-   if(c.raw){th+='<div class="condhdr">Observed conditions</div>'+esc(c.raw);}
-   document.getElementById('vtreat').innerHTML=th;
+   document.getElementById('vtreat').innerHTML=(c.services&&c.services.length)?c.services.map(function(x){return '<div class="svcrow">'+esc(x)+'</div>';}).join(''):'<div class="empty">No programs found.</div>';
+   var ch='';
+   if(c.issue&&c.issue!=='none'){ch+='<div class="condflag">'+esc(c.issue.toUpperCase())+'</div>';}
+   ch+=c.raw?('<div class="condraw">'+esc(c.raw)+'</div>'):'<div class="empty">No conditions listed on the account.</div>';
+   document.getElementById('vcond').innerHTML=ch;
    if(c.size&&String(c.acct)!==lastPricedAcct&&document.activeElement!==document.getElementById('psize')){lastPricedAcct=String(c.acct);document.getElementById('psize').value=c.size;renderPrices();}
   } else { box.classList.add('hide');none.style.display='';answered=false;
    var b1=document.getElementById('b1'),b2=document.getElementById('b2');
