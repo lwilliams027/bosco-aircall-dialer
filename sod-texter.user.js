@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco Sod Texter
 // @namespace    local.sa.sodtexter
-// @version      1.0
+// @version      1.1
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sod-texter.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sod-texter.user.js
 // @description  A/B sod webworm text campaign through the Aircall bridge. Scans every Tech Note, detects sod webworm (skips anyone already on surface insecticide), splits 50/50 price vs no-price balanced by note count, previews, then sends. Permanent ledger prevents double-texting.
@@ -105,6 +105,7 @@
 
   // ========================= state =========================
   let scanning = false, sending = false, plan = [], skippedTexted = 0, scanned = 0;
+  let cap = 10; try { cap = GM_getValue('sx_cap', 10); } catch (e) {}   // first-run cap; 0 = no limit
 
   function lookupSod(acct) {
     return new Promise((resolve) => {
@@ -141,7 +142,10 @@
         scanned++; setStatus(`Scanning… ${scanned} checked, ${qualifying.length} sod so far`); render();
         // condition lookup in a background tab
         const c = await lookupSod(info.acct);
-        if (c.sod && !c.hasSodTx) qualifying.push({ ...info, noteCount: nc, size: c.size || '' });
+        if (c.sod && !c.hasSodTx) {
+          qualifying.push({ ...info, noteCount: nc, size: c.size || '' });
+          if (cap > 0 && qualifying.length >= cap) { scanning = false; setStatus(`Hit the ${cap}-lead cap — stopping scan.`); break; }
+        }
         await sleep(60);
       }
       const before = getRows().length;
@@ -211,6 +215,9 @@
   #sxp .scan{background:#22303c} #sxp .scan.on{background:#f39c12;color:#3a2600}
   #sxp .send{background:#7BBF43;color:#08320f;width:100%;margin-top:9px;padding:15px}
   #sxp .send:disabled{opacity:.4;cursor:default}
+  #sxp .capln{display:flex;align-items:center;gap:7px;margin-top:8px;color:#9fb4c6;font-size:11.5px}
+  #sxp .capln input{width:58px;background:#0f1720;border:1px solid #2b3a48;border-radius:7px;color:#fff;padding:6px 8px;font-size:13px;font-weight:800;text-align:center}
+  #sxp .capln .dim{opacity:.7}
   #sxp .st{margin:10px 0;color:#9fb4c6;font-size:12px;min-height:16px}
   #sxp .sum{display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 8px}
   #sxp .tag{background:#1d2a36;border:1px solid #2c3e4d;border-radius:8px;padding:4px 8px;font-size:11px;font-weight:700;color:#cfe1ef}
@@ -248,6 +255,7 @@
           <button class="scan ${scanning ? 'on' : ''}" id="sxscan">${scanning ? 'STOP SCAN' : 'SCAN TECH NOTES'}</button>
           <button class="scan" id="sxrescan" ${scanning || sending ? 'disabled' : ''}>RESET LIST</button>
         </div>
+        <div class="capln">Stop scan after <input id="sxcap" type="number" min="0" step="1" value="${cap}" ${scanning ? 'disabled' : ''}> leads <span class="dim">(0 = whole list)</span></div>
         <div class="st">${esc(statusMsg)}</div>
         ${plan.length ? `<div class="sum">
           <span class="tag">${plan.length} total</span>
@@ -275,6 +283,7 @@
     panel.querySelector('#sxmin').onclick = () => panel.classList.toggle('min');
     panel.querySelector('#sxscan').onclick = runScan;
     panel.querySelector('#sxrescan').onclick = () => { plan = []; setStatus('List cleared. Scan again to rebuild.'); render(); };
+    const capEl = panel.querySelector('#sxcap'); if (capEl) capEl.onchange = (e) => { cap = Math.max(0, parseInt(e.target.value, 10) || 0); try { GM_setValue('sx_cap', cap); } catch (err) {} };
     panel.querySelector('#sxsend').onclick = sendAll;
     panel.querySelector('#sxcopy').onclick = () => { try { GM_setClipboard(JSON.stringify(ledger, null, 2)); setStatus('Ledger copied to clipboard.'); render(); } catch (e) {} };
     panel.querySelector('#sxclear').onclick = () => {
