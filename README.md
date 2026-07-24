@@ -25,6 +25,7 @@ a phone-friendly web control page.
 | File | Purpose |
 |---|---|
 | `bosco-dialer.user.js` | The Tampermonkey userscript (the main thing) |
+| `sod-texter.user.js` | Separate userscript: A/B sod webworm text campaign |
 | `start-dialer.bat` | Double-click launcher for the bridge |
 | `bridge.ps1` | Bridge engine: Aircall CDP + web control server + hotkeys |
 | `setup-phone.bat` | Run once **as admin** to allow phone access |
@@ -95,10 +96,29 @@ the resolve note:
 
 > Texting is currently disabled (`SEND_TEXTS = false` near the top of the userscript).
 
-## Install / update the userscript
+## Sod texter (A/B campaign)
 
-Open the raw file and Tampermonkey will offer to install it. After that it
-auto-updates from the same URL.
+A **separate** userscript (`sod-texter.user.js`) for a one-shot sod webworm text blast.
+Install it alongside the dialer; its panel appears **bottom-left** on the call log.
+
+1. **SCAN TECH NOTES** — walks every `Sales Call - Tech Note` lead, opens each history,
+   detects sod webworm in the last 30 days, and **skips anyone who already has a surface
+   insecticide**. Also reads note count and lawn size.
+2. It splits the qualifying leads **50/50** between two prompts — one **with the Surface
+   Insect / Grub Killer price** for their lawn size, one **without** — balanced so each
+   prompt gets an even share of one-note vs multi-note leads.
+3. **Preview** every assignment (tap a name to see the exact message). Price leads with an
+   unknown lawn size show a ⚠ so you can double-check.
+4. **SEND ALL** texts them through the Aircall bridge (needs the bridge running). Each person
+   is written to a **permanent ledger** the moment they're texted, so re-scanning or re-running
+   never double-texts anyone. "Reset ledger" (double-confirmed) starts a fresh campaign.
+
+> The bridge must be running and Aircall logged in. Copy ledger exports the full texted list.
+
+## Install / update the userscripts
+
+Open a raw file and Tampermonkey will offer to install it. After that each
+auto-updates from the same URL. The dialer and the sod texter install independently.
 
 ## Troubleshooting
 
