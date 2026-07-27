@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco Resolve 3+ Notes
 // @namespace    local.sa.resolvemulti
-// @version      1.0
+// @version      1.1
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/resolve-multi.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/resolve-multi.user.js
 // @description  One-off cleanup: resolve every Tech Note call that has 3+ notes. Reuses the dialer's scan for note counts, opens each, re-verifies 3+ notes, then sets the call status to Resolved. Preview + confirm before it touches anything.
@@ -94,7 +94,7 @@
   // ---- panel ----
   const style = document.createElement('style');
   style.textContent = `
-  #rmp{position:fixed;right:14px;bottom:14px;z-index:2147482900;width:320px;max-height:78vh;display:flex;flex-direction:column;
+  #rmp{position:fixed;left:14px;top:64px;z-index:2147482900;width:320px;max-height:82vh;display:flex;flex-direction:column;
     background:#141d27;color:#e8eef4;border:1px solid #2a3a48;border-radius:14px;font:13px/1.4 system-ui,Segoe UI,sans-serif;box-shadow:0 12px 40px rgba(0,0,0,.5)}
   #rmp.min{max-height:none}
   #rmp .hd{display:flex;align-items:center;gap:8px;padding:11px 13px;background:#c0392b;border-radius:14px 14px 0 0}
