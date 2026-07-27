@@ -27,6 +27,7 @@ a phone-friendly web control page.
 | `bosco-dialer.user.js` | The Tampermonkey userscript (the main thing) |
 | `sod-texter.user.js` | Separate userscript: sod / lawn-disease text campaigns |
 | `resolve-multi.user.js` | Separate userscript: resolve Tech Notes with 3+ notes |
+| `texted-split.user.js` | Separate userscript: split leads by texted note (+ A/B breakdown) |
 | `start-dialer.bat` | Double-click launcher for the bridge |
 | `bridge.ps1` | Bridge engine: Aircall CDP + web control server + hotkeys |
 | `setup-phone.bat` | Run once **as admin** to allow phone access |
