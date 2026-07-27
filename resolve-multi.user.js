@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Bosco Resolve 3+ Notes
 // @namespace    local.sa.resolvemulti
-// @version      1.1
+// @version      1.2
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/resolve-multi.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/resolve-multi.user.js
-// @description  One-off cleanup: resolve every Tech Note call that has 3+ notes. Reuses the dialer's scan for note counts, opens each, re-verifies 3+ notes, then sets the call status to Resolved. Preview + confirm before it touches anything.
+// @description  One-off cleanup for Sales Call - Tech Note leads: resolve by 3+ notes, or by Entered date (N+ days old). Preview + confirm, opens each and sets status to Resolved. Never touches other labels.
 // @match        https://bosco.serviceassistant.com/*
 // @run-at       document-idle
 // @grant        GM_setValue
@@ -24,6 +24,8 @@
   const realNotes = () => Array.from(document.querySelectorAll('div.note.container')).filter((n) => n.id !== 'NewNote' && !n.classList.contains('add-note') && !n.classList.contains('system') && n.offsetParent !== null);
   const notesSig = () => realNotes().map((n) => n.id).join(',');
   const openLeadRow = (row) => (row.querySelector('.stronger') || row.querySelector('.listView') || row).click();
+  const getLabel = (row) => (row.dataset.callstatus || (row.querySelector('.callStatus .badge, .callStatus .text') || {}).textContent || '').trim();
+  const isTech = (row) => /tech note/i.test(getLabel(row));            // only "Sales Call - Tech Note"
   async function waitForNotes(prevSig) { const start = performance.now(); while (performance.now() - start < 2500) { await sleep(120); if (notesSig() !== prevSig) { await sleep(300); return true; } } return false; }
   function scrollContainer() { const r = document.querySelector('div.callRow'); if (!r) return null; let el = r.parentElement; while (el && el !== document.body) { const s = getComputedStyle(el); if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && el.scrollHeight > el.clientHeight + 5) return el; el = el.parentElement; } return null; }
   async function findRow(acct) {
@@ -54,18 +56,50 @@
   function markResolved(acct, name) { resolved[acct] = { name, when: Date.now() }; try { GM_setValue('rm_resolved', resolved); } catch (e) {} }
 
   // ---- state ----
-  let working = false, list = [];
-  let statusMsg = 'Build the list of Tech Notes with 3+ notes.';
+  let working = false, building = false, list = [];
+  let mode = 'notes', days = 10;
+  let statusMsg = 'Pick a mode, then Build.';
   const setStatus = (s) => { statusMsg = s; };
+  const fmtPhone = (raw) => { const d = String(raw || '').replace(/\D/g, ''); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : d; };
 
-  function build() {
+  function build() { return mode === 'notes' ? buildNotes() : buildDays(); }
+
+  function buildNotes() {
     const st = readShared();
     if (!st) { list = []; setStatus('No dialer scan found. In the dialer press f to build the queue, then Build here.'); render(); return; }
     const seen = new Set();
     list = st.q.filter((l) => l && l.type === 'tech' && l.acct && (l.noteCount || 0) >= 3 && !isResolved(String(l.acct)))
-      .map((l) => ({ acct: String(l.acct), name: l.name || '(lead)', phone: l.phone || '', notes: l.noteCount || 0 }))
+      .map((l) => ({ acct: String(l.acct), name: l.name || '(lead)', phone: l.phone || '', detail: `${l.noteCount || 0} notes`, notes: l.noteCount || 0 }))
       .filter((x) => { if (seen.has(x.acct)) return false; seen.add(x.acct); return true; });
     setStatus(list.length ? `${list.length} Tech Notes have 3+ notes — review, then Resolve All.` : 'None found with 3+ notes.');
+    render();
+  }
+
+  // scroll the whole call log, read each Tech Note's "Entered:" date, keep the ones N+ days old
+  async function buildDays() {
+    if (building) { building = false; return; }        // second click = stop scan
+    building = true; list = []; setStatus('Scanning call log for Entered dates…'); render();
+    const seen = new Set(), sc = scrollContainer(); let idle = 0;
+    const now = new Date(); now.setHours(0, 0, 0, 0);
+    while (building) {
+      let didNew = false;
+      for (const row of document.querySelectorAll('div.callRow')) {
+        const acct = row.dataset.accountnumber || ''; if (!acct || seen.has(acct)) continue;
+        seen.add(acct); didNew = true;
+        if (!isTech(row)) continue;                                   // leave alone if it isn't Sales Call - Tech Note
+        const m = (row.textContent || '').match(/Entered:\s*(\d{1,2})\/(\d{1,2})\/(\d{4})/i); if (!m) continue;
+        const d = new Date(+m[3], +m[1] - 1, +m[2]); d.setHours(0, 0, 0, 0);
+        const age = Math.round((now - d) / 86400000);
+        if (age >= days && !isResolved(acct)) list.push({ acct, name: row.dataset.customername || '(lead)', phone: fmtPhone(row.dataset.customerphone), detail: `${age}d old · ${m[1]}/${m[2]}/${m[3]}`, age });
+      }
+      setStatus(`Scanning… ${seen.size} rows, ${list.length} old Tech Notes`); render();
+      if (sc) sc.scrollTop = sc.scrollHeight; else break;
+      await sleep(700);
+      if (!didNew) { idle++; if (idle >= 2) break; } else idle = 0;
+    }
+    building = false;
+    list.sort((a, b) => b.age - a.age);
+    setStatus(list.length ? `${list.length} Tech Notes are ${days}+ days old — review, then Resolve All.` : `No Tech Notes ${days}+ days old.`);
     render();
   }
 
@@ -73,21 +107,23 @@
     if (working) { working = false; return; }          // second click = stop
     if (!list.length) return;
     const todo = list.filter((it) => !it.done);
-    if (!confirm(`Resolve ${todo.length} Tech Notes that have 3+ notes?\n\nEach is opened, re-checked for 3+ notes, then set to Resolved. This clears them from the call log.`)) return;
+    const what = mode === 'notes' ? 'have 3+ notes' : `are ${days}+ days old`;
+    if (!confirm(`Resolve ${todo.length} Tech Notes that ${what}?\n\nEach is opened and set to Resolved. This clears them from the call log. Only Sales Call - Tech Note leads are touched.`)) return;
     working = true; let done = 0, skipped = 0, failed = 0;
     for (const it of todo) {
       if (!working) break;
       setStatus(`Resolving ${done + skipped + failed + 1}/${todo.length} — ${it.name}…`); render();
       const row = await findRow(it.acct);
       if (!row) { it.failed = true; failed++; console.warn('[rm] row not found', it.acct); render(); continue; }
+      if (!isTech(row)) { it.skipped = true; skipped++; render(); await sleep(200); continue; }   // safety: never touch non-tech-notes
       const prev = notesSig(); openLeadRow(row); await waitForNotes(prev);
-      if (realNotes().length < 3) { it.skipped = true; skipped++; render(); await sleep(300); continue; }   // safety: only if truly 3+
+      if (mode === 'notes' && realNotes().length < 3) { it.skipped = true; skipped++; render(); await sleep(300); continue; }
       let ok = false; try { ok = await resolveStatus(); } catch (e) { console.error('[rm]', e); }
       if (ok) { it.done = true; done++; markResolved(it.acct, it.name); } else { it.failed = true; failed++; }
       render(); await sleep(600);
     }
     working = false;
-    setStatus(`Done — ${done} resolved${skipped ? `, ${skipped} skipped (not 3+ anymore)` : ''}${failed ? `, ${failed} failed` : ''}.`);
+    setStatus(`Done — ${done} resolved${skipped ? `, ${skipped} skipped` : ''}${failed ? `, ${failed} failed` : ''}.`);
     render();
   }
 
@@ -102,6 +138,11 @@
   #rmp .hd .x{cursor:pointer;font-size:16px;opacity:.9}
   #rmp .bd{padding:12px 13px;overflow:auto} #rmp.min .bd{display:none}
   #rmp button{border:0;border-radius:10px;font-weight:800;color:#fff;cursor:pointer;font-family:inherit;padding:12px 8px;font-size:13px;width:100%}
+  #rmp .modes{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+  #rmp .md{background:#1b2632;color:#9fb4c6;border:1px solid #2a3a48;padding:11px 6px;font-size:13px}
+  #rmp .md.on{background:#c0392b;color:#fff;border-color:#c0392b}
+  #rmp .drow{display:flex;align-items:center;gap:7px;margin-bottom:8px;color:#cfe1ef;font-size:12px}
+  #rmp .drow input{width:52px;background:#0f1720;border:1px solid #2b3a48;border-radius:7px;color:#fff;padding:6px 8px;font-size:13px;font-weight:800;text-align:center}
   #rmp .scan{background:#22303c;margin-bottom:8px}
   #rmp .go{background:#c0392b;margin-top:9px} #rmp .go:disabled{opacity:.4;cursor:default}
   #rmp .st{margin:6px 0 8px;color:#9fb4c6;font-size:12px;min-height:16px}
@@ -118,21 +159,29 @@
 
   function render() {
     const pend = list.filter((it) => !it.done).length;
+    const busy = working || building;
     panel.innerHTML = `
-      <div class="hd"><b>✅ Resolve 3+ Notes</b><span class="x" id="rmmin">–</span></div>
+      <div class="hd"><b>✅ Resolve Tech Notes</b><span class="x" id="rmmin">–</span></div>
       <div class="bd">
-        <button class="scan" id="rmbuild" ${working ? 'disabled' : ''}>BUILD LIST</button>
+        <div class="modes">
+          <button class="md ${mode === 'notes' ? 'on' : ''}" data-m="notes" ${busy ? 'disabled' : ''}>3+ Notes</button>
+          <button class="md ${mode === 'days' ? 'on' : ''}" data-m="days" ${busy ? 'disabled' : ''}>Days Old</button>
+        </div>
+        ${mode === 'days' ? `<div class="drow">Resolve Tech Notes <input id="rmdays" type="number" min="1" step="1" value="${days}" ${busy ? 'disabled' : ''}> + days old</div>` : ''}
+        <button class="scan" id="rmbuild" ${working ? 'disabled' : ''}>${building ? 'STOP SCAN' : 'BUILD LIST'}</button>
         <div class="st">${esc(statusMsg)}</div>
-        <button class="go" id="rmgo" ${(!list.length) ? 'disabled' : ''}>${working ? 'STOP' : `RESOLVE ALL (${pend})`}</button>
+        <button class="go" id="rmgo" ${(!list.length || building) ? 'disabled' : ''}>${working ? 'STOP' : `RESOLVE ALL (${pend})`}</button>
         <ul>${list.map((it) => `
           <li class="${it.done ? 'done' : ''}${it.failed ? ' failed' : ''}${it.skipped ? ' skipped' : ''}">
             <span class="nm">${esc(it.name)}</span>
-            <span class="ct">${it.notes} notes</span>
-            ${it.done ? '<span class="stt g">✓</span>' : it.failed ? '<span class="stt r">fail</span>' : it.skipped ? '<span class="stt">&lt;3</span>' : ''}
+            <span class="ct">${esc(it.detail || '')}</span>
+            ${it.done ? '<span class="stt g">✓</span>' : it.failed ? '<span class="stt r">fail</span>' : it.skipped ? '<span class="stt">skip</span>' : ''}
           </li>`).join('')}</ul>
         <div class="foot">Already resolved by this tool: ${Object.keys(resolved).length}</div>
       </div>`;
     panel.querySelector('#rmmin').onclick = () => panel.classList.toggle('min');
+    panel.querySelectorAll('.md').forEach((b) => { b.onclick = () => { if (busy) return; mode = b.dataset.m; list = []; setStatus(mode === 'notes' ? 'Build the list of Tech Notes with 3+ notes.' : `Build the list of Tech Notes ${days}+ days old.`); render(); }; });
+    const dEl = panel.querySelector('#rmdays'); if (dEl) dEl.onchange = (e) => { days = Math.max(1, parseInt(e.target.value, 10) || 10); render(); };
     panel.querySelector('#rmbuild').onclick = build;
     panel.querySelector('#rmgo').onclick = resolveAll;
   }
