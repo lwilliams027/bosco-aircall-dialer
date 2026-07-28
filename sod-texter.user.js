@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco Sod Texter
 // @namespace    local.sa.sodtexter
-// @version      1.11
+// @version      1.12
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sod-texter.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/sod-texter.user.js
 // @description  Text campaigns for Tech Notes: Sod Webworm (A/B price vs no-price) and Lawn Disease (leaf/dollar spot, everyone quoted). Reuses the dialer's scan, previews, texts through the Aircall bridge, logs a note (leaves the call in Tech Notes to be called). Per-campaign permanent ledger prevents double-texting.
@@ -33,13 +33,14 @@
       const t0 = Date.now();
       while (Date.now() - t0 < 15000 && document.querySelectorAll('tr.dx-data-row').length === 0) await sleep(400);
       const rows = Array.from(document.querySelectorAll('tr.dx-data-row')).filter((r) => /\bL0[1-9]\b/i.test(r.innerText || ''));
-      let sod = 0, dollar = 0, leaf = 0;
+      let sod = 0, dollar = 0, leaf = 0, moles = 0;
       for (const r of rows) {                                         // scan ALL treatment rows (all-time), not just recent
         r.click(); await sleep(700);
         const body = (document.body.innerText || '').toLowerCase();
         if (/sod\s*webworm/.test(body)) sod = 1;
         if (body.includes('dollar spot')) dollar = 1;
         if (body.includes('leaf spot')) leaf = 1;
+        if (/\bmoles?\b/.test(body)) moles = 1;
       }
       // customer details tab -> existing treatments + size
       try {
@@ -55,6 +56,7 @@
       const svc = (document.body.textContent || '').toLowerCase();
       const hasSodTx = /surface insecticide|grub killer|dylox|\binsecticide\b/.test(svc) ? 1 : 0;
       const hasDiseaseTx = /lawn disease|disease control|disease treatment|(?:prevent|curat)\w*\s*\w*\s*disease|disease\s*\w*\s*(?:prevent|curat)/.test(svc) ? 1 : 0;
+      const hasMolesTx = /mole control/.test(svc) ? 1 : 0;
       // property size — the cell right after the "Size:" label, e.g. "9.0000 1000 sq ft (Online Measurement)"
       let size = ''; try {
         const norm = (s) => {
@@ -69,8 +71,8 @@
         if (lab && lab.nextElementSibling) size = norm(lab.nextElementSibling.textContent || '');
         if (!size) size = norm(document.body.textContent || '');
       } catch (e) {}
-      console.log('[sx-scan]', acct, { sod, dollar, leaf, hasSodTx, hasDiseaseTx, size });
-      try { GM_setValue('sx_condition', { acct: String(acct), sod, dollar, leaf, hasSodTx, hasDiseaseTx, size, ts: Date.now() }); } catch (e) {}
+      console.log('[sx-scan]', acct, { sod, dollar, leaf, moles, hasSodTx, hasDiseaseTx, hasMolesTx, size });
+      try { GM_setValue('sx_condition', { acct: String(acct), sod, dollar, leaf, moles, hasSodTx, hasDiseaseTx, hasMolesTx, size, ts: Date.now() }); } catch (e) {}
     })(histM[1]);
     return;
   }
@@ -154,6 +156,8 @@
   function surfacePrice(size) { const z = parseFloat(size) || 0; const p = z <= 5 ? 145 : 145 + (z - 5) * 18; return '$' + Math.round(p); }
   // Lawn Disease Curative/Preventer: $173 base (<=5k), +$20 per 1k over 5
   function diseasePrice(size) { const z = parseFloat(size) || 0; const p = z <= 5 ? 173 : 173 + (z - 5) * 20; return '$' + Math.round(p); }
+  // Mole Control, per application: $167 base (<=5k), +$12 per 1k over 5
+  function molePrice(size) { const z = parseFloat(size) || 0; const p = z <= 5 ? 167 : 167 + (z - 5) * 12; return '$' + Math.round(p); }
   const sizeKnown = (size) => !!(parseFloat(size));
 
   // ========================= messages =========================
@@ -163,6 +167,8 @@
   // Lawn disease (everyone gets the quote; message depends on which disease)
   const MSG_DOLLAR = (n, price) => `Hey ${n} this is Landon with Lush Lawn Safari Tree, you had a technician out the other day and he just wanted me to send you a text to let you know he did a good job on the application and you should start seeing some results pretty quickly! He also wanted me to let you know he found a fungus in your lawn called dollar spot. Basically, it is a fungus usually caused from dry soil conditions and moisture in the air. In server cases you will notice brown circles roughly the size of a silver dollar. the problem is as it continues to thrive, the small circles eventually bleed into each other eventually thinning out large sections of your lawn. So what we do is put down a lawn disease curative which will also prevent it from coming back and it's guaranteed! I just wanted to make sure its okay to do for you before any further damage was done! Its one treatment for ${price} guaranteeing your lawn is protected for a FULL YEAR! I'll shoot you a call to address this issue in a few but if you would like me to go forward with this for you right now let me know!`;
   const MSG_LEAF = (n, price) => `Hey ${n} this is Landon with Lush Lawn Safari Tree, you had a technician out the other day and he just wanted me to send you a text to let you know he did a good job on the application and you should start seeing some results pretty quickly! He also wanted me to let you know he found a fungus in your lawn called leaf spot. Its nothing you are we did wrong. Basically, it is a fungus caused from stagnate water in spring that rots the roots of your grass, creating the environment for a fungus to form. If you were to pick up a grass blade it would look like it was burnt with a lighter. The problem is that it thrives in heat causing it to go through a phase called "melting out" in which that little burn spot looks like it's melting, eventually taking over the entire grass blade, thinning out sections of your lawn potentially causing you to repair and reseed, which is expensive. So what we do is put down a lawn disease curative which will also prevent it from coming back and it's guaranteed. I just wanted to make sure that was okay to do for you before any further damage is done! Its one treatment for ${price} guaranteeing your lawn is protected for a FULL YEAR! I'll shoot you a call to address this issue in a few but if you would like me to go forward with this for you right now let me know!`;
+  // Moles (everyone gets the quote; per-application price)
+  const MSG_MOLES = (n, price) => `Hello ${n}, Our technician was on your lawn and noticed you had Mole damage. I have a guaranteed program to get rid of these Moles! Timing is very crucial with these applications. Moles will do severe damage to your lawn and I don't want to see your lawn get damaged. I have a program that is 4 times per year with guaranteed results. A cost per application is ${price}. In the case, we come out and there is no activity we would continue to come out and monitor the property and treat if/when they return.  I would like to get started with these applications so we can stop the damage that's being done to your lawn! Does that sound OK?`;
 
   // ========================= campaigns =========================
   const CAMPAIGNS = {
@@ -174,6 +180,9 @@
     sod: { label: 'Sod Webworm', emoji: '🐛', issues: ['sod webworm'], ledgerKey: 'sx_texted', ab: true,
       fromShared: (l) => l.act ? ({ ok: !!l.act.sod, issue: 'sod webworm' }) : ({ ok: l.issue === 'sod webworm', issue: 'sod webworm' }),
       gapMatch: (c) => ({ ok: !!(c.sod && !c.hasSodTx), issue: 'sod webworm' }) },
+    moles: { label: 'Moles', emoji: '🕳️', issues: ['moles'], ledgerKey: 'sx_texted_moles', ab: false,
+      fromShared: (l) => l.act ? ({ ok: !!l.act.moles, issue: 'moles' }) : ({ ok: l.issue === 'moles', issue: 'moles' }),
+      gapMatch: (c) => ({ ok: !!(c.moles && !c.hasMolesTx), issue: 'moles' }) },
   };
   let campaign = 'disease'; try { campaign = GM_getValue('sx_campaign', 'disease'); if (!CAMPAIGNS[campaign]) campaign = 'disease'; } catch (e) {}
   const camp = () => CAMPAIGNS[campaign];
@@ -219,7 +228,7 @@
       try { lid = GM_addValueChangeListener('sx_condition', (n, o, v) => { if (v && String(v.acct) === String(acct)) finish(v); }); } catch (e) {}
       try { GM_setValue('sx_pending_' + acct, Date.now()); } catch (e) {}
       try { tab = GM_openInTab(`https://bosco.serviceassistant.com/172154/Customer/customer/index/${acct}/history`, { active: false, insert: true }); } catch (e) {}
-      setTimeout(() => finish({ sod: 0, dollar: 0, leaf: 0, hasSodTx: 0, hasDiseaseTx: 0, size: '' }), 35000);
+      setTimeout(() => finish({ sod: 0, dollar: 0, leaf: 0, moles: 0, hasSodTx: 0, hasDiseaseTx: 0, hasMolesTx: 0, size: '' }), 35000);
     });
   }
 
@@ -298,6 +307,13 @@
         tag: withPrice ? 'price' : 'noprice', chip: withPrice ? 'PRICE' : 'NO PRICE', chipCls: withPrice ? 'p' : 'n',
         priceStr: withPrice ? price : '' };
     }
+    if (campaign === 'moles') {
+      const price = molePrice(l.size);
+      return { lead: l, withPrice: true, group, sizeOk: sizeKnown(l.size),
+        message: MSG_MOLES(n, price),
+        note: `Mole quote texted (${price}/app) - ${todayStr()}`,
+        tag: 'moles', chip: 'MOLES', chipCls: 'p', priceStr: `${price}/app` };
+    }
     // disease
     const isDollar = l.issue === 'dollar spot', price = diseasePrice(l.size);
     return { lead: l, withPrice: true, group, sizeOk: sizeKnown(l.size),
@@ -352,8 +368,8 @@
   #sxp .hd .x{cursor:pointer;font-size:16px;opacity:.9}
   #sxp .bd{padding:12px 13px;overflow:auto}
   #sxp.min .bd{display:none}
-  #sxp .camps{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
-  #sxp .camp{background:#1b2632;color:#9fb4c6;border:1px solid #2a3a48;border-radius:10px;padding:11px 6px;font-size:13px;font-weight:800}
+  #sxp .camps{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px}
+  #sxp .camp{background:#1b2632;color:#9fb4c6;border:1px solid #2a3a48;border-radius:10px;padding:10px 3px;font-size:11.5px;font-weight:800;line-height:1.15}
   #sxp .camp.on{background:#0f94d2;color:#fff;border-color:#0f94d2}
   #sxp .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   #sxp button{border:0;border-radius:10px;font-weight:800;color:#fff;cursor:pointer;font-family:inherit;padding:12px 8px;font-size:13px}
