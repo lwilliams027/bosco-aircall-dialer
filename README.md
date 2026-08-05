@@ -68,6 +68,28 @@ a phone-friendly web control page.
 > While the bridge runs, Up/Down are captured system-wide (they won't scroll other
 > apps). Close the bridge window to release them.
 
+### Voicemail drop (on NO ANSWER)
+
+When you hit **NO ANSWER** (▼ / Down), the bridge plays your pre-recorded voicemail **into the
+mic**, hangs up, and moves to the next lead. Software can't feed audio into a mic on its own, so
+this needs a **virtual audio cable** — a one-time setup:
+
+1. Install **VB-CABLE** (free): download "VB-CABLE Virtual Audio Device," run the installer as
+   admin, reboot.
+2. In **Aircall → Settings → Audio**, set the **Microphone** to **"CABLE Output (VB-Audio Virtual
+   Cable)."** (Your speaker/headphones stay as they are.)
+3. Record your voicemail and save it as **`voicemail.wav`** (WAV / PCM) in the `sa-dialer` folder,
+   next to `bridge.ps1`.
+4. Restart `start-dialer.bat`.
+
+That's it — NO ANSWER now leaves your voicemail automatically. Notes:
+- Turn it off with `DROP_VOICEMAIL = false` near the top of the userscript.
+- To use a different device or file, launch with
+  `bridge.ps1 -VmDevice "CABLE Input" -VmWav "C:\path\to\voicemail.wav"`.
+- If the cable isn't installed/found, NO ANSWER just hangs up (no voicemail) — nothing breaks.
+- Voicemeeter works too (set `-VmDevice "Voicemeeter Input"`) if you want your real mic and the
+  voicemail mixed on the same line.
+
 ### Phone control
 
 Open the URL the bridge prints (e.g. `http://192.168.1.50:8123/`) on your phone —
