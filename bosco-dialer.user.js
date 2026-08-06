@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco Dialer
 // @namespace    local.sa.dialer
-// @version      5.14
+// @version      5.15
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js
 // @description  Prioritized call queue via a local bridge: dial/hangup, global Up/Down, Esc pause (hang up)/resume (redial), no-answer condition lookup + auto note/resolve, phone control page.
@@ -127,7 +127,6 @@
     { type: 'cxl',  rank: 1, test: (s) => s.includes('cxl customer c/b') || (s.includes('cxl') && s.includes('c/b')) },
   ];
   const NO_ANSWER_NOTE = 'No Answer, Left Voicemail';
-  const DROP_VOICEMAIL = true;   // on NO ANSWER: play your recorded voicemail into the mic, then hang up, then next
   const LOAD_TIMEOUT = 2000;
   const insectMsg = (n) => `Hey ${n}, this is Landon with Lush Lawn. We recently serviced your lawn. During that visit, our technician observed signs of insect activity that is causing damage to your turf. We wanted to make you aware of this issue as soon as possible. Based on the technician's assessment, we strongly recommend applying a surface insecticide treatment to help protect and restore the health of your lawn. Would you like a quote on this?`;
   const diseaseMsg = (n) => `Hey ${n}, this is Landon with Lush Lawn. We recently serviced your lawn. During that visit, our technician observed a lawn disease that is causing damage to your turf. We wanted to make you aware of this issue as soon as possible. Based on the technician's assessment, we strongly recommend applying a lawn disease treatment to help protect and restore the health of your lawn. Would you like a quote on this?`;
@@ -143,16 +142,15 @@
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const firstName = (n) => (String(n || '').trim().split(/\s+/)[0] || 'there').replace(/[^A-Za-z'-]/g, '') || 'there';
 
-  function bridge(path, method, body, timeoutMs) {
+  function bridge(path, method, body) {
     return new Promise((resolve) => {
-      try { GM_xmlhttpRequest({ method: method || 'GET', url: BRIDGE + path, data: body || null, timeout: timeoutMs || 6000,
+      try { GM_xmlhttpRequest({ method: method || 'GET', url: BRIDGE + path, data: body || null, timeout: 6000,
         onload: (r) => resolve(r.responseText || ''), onerror: () => resolve(null), ontimeout: () => resolve(null) });
       } catch (e) { resolve(null); }
     });
   }
   const bridgeDial = (num) => bridge('/dial', 'POST', num);
   const bridgeHangup = () => bridge('/hangup', 'POST');
-  const bridgeVoicemail = () => bridge('/voicemail', 'POST', null, 130000);   // plays the VM (blocks) then hangs up on the bridge
 
   function setNative(el, val) {
     const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
@@ -334,8 +332,7 @@
     if (paused || busy || (callState !== 'ringing' && callState !== 'answered')) return;
     busy = true; const lead = currentLead;
     try {
-      if (DROP_VOICEMAIL) { badge('Leaving voicemail…', '#0E94D2'); await bridgeVoicemail(); }   // plays VM into the mic, then hangs up
-      else { await hangup(); }
+      await hangup();
       const count = noteCount();
       if (count <= 1) { badge(`No answer — logging…`, '#f39c12'); await noAnswerOneNote(); }
       else { badge(`Didn't answer twice — resolving…`, '#f39c12'); await noAnswerMultiNote(); }

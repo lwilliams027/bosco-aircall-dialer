@@ -1,11 +1,9 @@
 # Aircall bridge: CDP to Aircall + local HTTP control server + global Up/Down hotkeys.
 #   Serves a phone-friendly control page at  http://<pc-ip>:8123/
 #   Routes: GET /  | GET /poll | POST /cmd | GET|POST /state | GET|POST /config
-#           POST /dial | POST /hangup | POST /text | POST /voicemail
-param([int]$Port = 9222, [int]$WebPort = 8123,
-      [string]$VmWav = '', [string]$VmDevice = 'CABLE Input')   # voicemail-drop: WAV file + virtual audio device Aircall's mic uses
+#           POST /dial | POST /hangup | POST /text
+param([int]$Port = 9222, [int]$WebPort = 8123)
 $ErrorActionPreference = 'Stop'
-if (-not $VmWav) { $VmWav = Join-Path $PSScriptRoot 'voicemail.wav' }
 
 Add-Type @"
 using System;
@@ -17,69 +15,6 @@ public class Hk {
   [DllImport("user32.dll")] public static extern bool PeekMessage(out MSG m, IntPtr hWnd, uint min, uint max, uint remove);
 }
 "@
-
-# ---- voicemail drop: play a WAV into a chosen output device (a virtual audio cable Aircall's mic listens to) ----
-Add-Type @"
-using System;
-using System.IO;
-using System.Text;
-using System.Threading;
-using System.Runtime.InteropServices;
-public class WavePlayer {
-  [DllImport("winmm.dll")] static extern int waveOutGetNumDevs();
-  [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Ansi)]
-  public struct WAVEOUTCAPS { public short wMid; public short wPid; public int vDriverVersion; [MarshalAs(UnmanagedType.ByValTStr, SizeConst=32)] public string szPname; public uint dwFormats; public short wChannels; public short wReserved1; public uint dwSupport; }
-  [DllImport("winmm.dll", CharSet=CharSet.Ansi)] static extern int waveOutGetDevCapsA(IntPtr id, ref WAVEOUTCAPS c, int size);
-  [StructLayout(LayoutKind.Sequential)] public struct WAVEFORMATEX { public short wFormatTag; public short nChannels; public int nSamplesPerSec; public int nAvgBytesPerSec; public short nBlockAlign; public short wBitsPerSample; public short cbSize; }
-  [StructLayout(LayoutKind.Sequential)] public struct WAVEHDR { public IntPtr lpData; public int dwBufferLength; public int dwBytesRecorded; public IntPtr dwUser; public int dwFlags; public int dwLoops; public IntPtr lpNext; public IntPtr reserved; }
-  [DllImport("winmm.dll")] static extern int waveOutOpen(out IntPtr hwo, int id, ref WAVEFORMATEX f, IntPtr cb, IntPtr inst, int flags);
-  [DllImport("winmm.dll")] static extern int waveOutPrepareHeader(IntPtr hwo, ref WAVEHDR h, int size);
-  [DllImport("winmm.dll")] static extern int waveOutWrite(IntPtr hwo, ref WAVEHDR h, int size);
-  [DllImport("winmm.dll")] static extern int waveOutUnprepareHeader(IntPtr hwo, ref WAVEHDR h, int size);
-  [DllImport("winmm.dll")] static extern int waveOutReset(IntPtr hwo);
-  [DllImport("winmm.dll")] static extern int waveOutClose(IntPtr hwo);
-  static int FindDevice(string s) {
-    if (string.IsNullOrEmpty(s)) return -1;
-    int n = waveOutGetNumDevs();
-    for (int i=0;i<n;i++){ var c=new WAVEOUTCAPS(); waveOutGetDevCapsA((IntPtr)i, ref c, Marshal.SizeOf(typeof(WAVEOUTCAPS))); if (c.szPname!=null && c.szPname.ToLower().Contains(s.ToLower())) return i; }
-    return -2;
-  }
-  public static string Play(string path, string deviceContains, int maxMs) {
-    if (!File.Exists(path)) return "wav-not-found";
-    int dev = FindDevice(deviceContains);
-    if (dev == -2) return "device-not-found:" + deviceContains;
-    byte[] f = File.ReadAllBytes(path);
-    if (f.Length < 44 || Encoding.ASCII.GetString(f,0,4) != "RIFF") return "bad-wav";
-    int pos=12; short tag=1, ch=1, bits=16; int rate=8000, dataOff=-1, dataLen=0;
-    while (pos + 8 <= f.Length) {
-      string cid = Encoding.ASCII.GetString(f,pos,4); int clen = BitConverter.ToInt32(f,pos+4); int cd = pos+8;
-      if (cid=="fmt ") { tag=BitConverter.ToInt16(f,cd); ch=BitConverter.ToInt16(f,cd+2); rate=BitConverter.ToInt32(f,cd+4); bits=BitConverter.ToInt16(f,cd+14); }
-      else if (cid=="data") { dataOff=cd; dataLen=clen; }
-      pos = cd + clen + (clen & 1);
-    }
-    if (dataOff < 0) return "no-data";
-    if (tag != 1) return "not-pcm";
-    if (dataOff + dataLen > f.Length) dataLen = f.Length - dataOff;
-    var wfx = new WAVEFORMATEX(); wfx.wFormatTag=1; wfx.nChannels=ch; wfx.nSamplesPerSec=rate; wfx.wBitsPerSample=bits;
-    wfx.nBlockAlign=(short)(ch*bits/8); wfx.nAvgBytesPerSec=rate*wfx.nBlockAlign; wfx.cbSize=0;
-    IntPtr hwo; int r = waveOutOpen(out hwo, dev, ref wfx, IntPtr.Zero, IntPtr.Zero, 0);
-    if (r != 0) return "open-fail-" + r;
-    IntPtr buf = Marshal.AllocHGlobal(dataLen); Marshal.Copy(f, dataOff, buf, dataLen);
-    var h = new WAVEHDR(); h.lpData=buf; h.dwBufferLength=dataLen;
-    int hs = Marshal.SizeOf(typeof(WAVEHDR));
-    waveOutPrepareHeader(hwo, ref h, hs); waveOutWrite(hwo, ref h, hs);
-    int dur = (int)((long)dataLen * 1000 / Math.Max(1, wfx.nAvgBytesPerSec)); if (dur > maxMs) dur = maxMs;
-    Thread.Sleep(dur + 300);
-    waveOutReset(hwo); waveOutUnprepareHeader(hwo, ref h, hs); waveOutClose(hwo); Marshal.FreeHGlobal(buf);
-    return "played:" + (dur/1000) + "s@dev" + dev;
-  }
-}
-"@
-
-function PlayVoicemail() {
-  try { $r = [WavePlayer]::Play($VmWav, $VmDevice, 120000); Write-Host "[voicemail] $r" -ForegroundColor Cyan; return $r }
-  catch { Write-Host "[voicemail] error $_" -ForegroundColor Red; return "vm-error" }
-}
 
 function Get-WsUrl($port) {
   $t = Invoke-RestMethod "http://127.0.0.1:$port/json" -TimeoutSec 4
@@ -436,7 +371,6 @@ while ($ws.State -eq 'Open') {
       elseif ($path -eq '/config') { if ($ctx.Request.HttpMethod -eq 'POST') { $script:config = $body; Write-Host "config saved" -ForegroundColor Cyan } else { $out = $script:config; $ctype = 'application/json' } }
       elseif ($path -eq '/dial') { $b = $body.Trim(); if ($b -match '^\+1\d{10}$') { Dial $b; Write-Host "dial $b" -ForegroundColor Cyan } }
       elseif ($path -eq '/hangup') { HangUp; Write-Host "hangup" -ForegroundColor Magenta }
-      elseif ($path -eq '/voicemail') { $out = (PlayVoicemail); Start-Sleep -Milliseconds 300; HangUp; Write-Host "voicemail + hangup" -ForegroundColor Magenta }
       elseif ($path -eq '/newconv') { NewConv; Write-Host "new conv (Alt+N)" -ForegroundColor Cyan }
       elseif ($path -eq '/text') { try { $o = $body | ConvertFrom-Json; if ($o.number -match '^\+1\d{10}$') { $out = (SendText $o.number $o.message) } else { $out = 'bad number' } } catch { $out = 'text error' } }
       $ctx.Response.Headers.Add('Access-Control-Allow-Origin', '*')
