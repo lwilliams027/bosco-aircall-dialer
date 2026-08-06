@@ -2,6 +2,7 @@
 #   Serves a phone-friendly control page at  http://<pc-ip>:8123/
 #   Routes: GET /  | GET /poll | POST /cmd | GET|POST /state | GET|POST /config
 #           POST /dial | POST /hangup | POST /text
+#           campaign pipeline: GET /cpoll | POST /cmode | POST /pd-start | POST /pd-pause | POST /pd-skip | POST /pd-text
 param([int]$Port = 9222, [int]$WebPort = 8123)
 $ErrorActionPreference = 'Stop'
 
@@ -54,6 +55,16 @@ function HangUp() {
   Send-CDP 'Input.dispatchKeyEvent' @{ type='keyUp'; key='q'; code='KeyQ'; windowsVirtualKeyCode=81; modifiers=1 }
   Send-CDP 'Input.dispatchKeyEvent' @{ type='keyUp'; key='Alt'; code='AltLeft'; windowsVirtualKeyCode=18; modifiers=0 }
 }
+# ---- Aircall Power Dialer primitives (campaign pipeline) ----
+function PdStart() { return (Eval-Result "(function(){var b=[].slice.call(document.querySelectorAll('button')).find(function(x){var t=(x.textContent||'').trim().toLowerCase();return t.indexOf('resume')===0||t.indexOf('start')===0;});if(b){b.click();return 'start';}return 'no-start-btn';})()") }
+function PdPauseSession() { return (Eval-Result "(function(){var b=[].slice.call(document.querySelectorAll('button')).find(function(x){var t=(x.textContent||'').trim().toLowerCase();return t.indexOf('pause')===0;});if(b){b.click();return 'pause';}return 'no-pause-btn';})()") }
+function PdSkip() { return (Eval-Result "(function(){var b=document.querySelector('[data-test=hangup-button]');if(!b){b=[].slice.call(document.querySelectorAll('button')).find(function(x){return (x.getAttribute('aria-label')||'').toLowerCase()==='skip';});}if(b){b.click();return 'skip';}return 'no-skip-btn';})()") }
+function PdSendCurrent($msg) {
+  $mJson = ($msg | ConvertTo-Json)
+  $js = "(function(m){var q=function(s){return document.querySelector(s);};function setV(el,v){var p=el.tagName==='TEXTAREA'?window.HTMLTextAreaElement.prototype:window.HTMLInputElement.prototype;var d=Object.getOwnPropertyDescriptor(p,'value').set;d.call(el,v);el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));}function wait(ms){return new Promise(function(r){setTimeout(r,ms);});}return new Promise(function(resolve){(async function(){var ta=q('[data-test=send-message-input]');for(var j=0;j<20&&!ta;j++){await wait(200);ta=q('[data-test=send-message-input]');}if(!ta){resolve('no-msg-box');return;}setV(ta,m);ta.focus();await wait(500);var send=q('[data-test=send-message],[aria-label*=Send]');for(var h=0;h<20&&(!send||send.disabled);h++){await wait(200);send=q('[data-test=send-message],[aria-label*=Send]');}if(!send){resolve('no-send-btn');return;}send.click();resolve('sent');})();});})($mJson);"
+  return (Eval-Result $js)
+}
+
 function Eval-Result($js) {
   $script:id++; $myid = $script:id
   $obj = @{ id = $myid; method = 'Runtime.evaluate'; params = @{ expression = $js; awaitPromise = $true; returnByValue = $true } } | ConvertTo-Json -Compress -Depth 8
@@ -344,6 +355,8 @@ else {
 
 $queue = New-Object System.Collections.Generic.List[string]
 $queue.Add('run')
+$cq = New-Object System.Collections.Generic.List[string]   # campaign-pipeline command queue (for the HubSpot userscript)
+$script:cmode = $false                                     # campaign mode: route Up/Down to the campaign queue
 $script:state = '{}'
 $script:config = '{}'
 Write-Host "Bridge ready. Up = answered, Down = no answer. Leave this window open." -ForegroundColor Green
@@ -354,8 +367,8 @@ while ($ws.State -eq 'Open') {
   while ([Hk]::PeekMessage([ref]$msg, [IntPtr]::Zero, $WM_HOTKEY, $WM_HOTKEY, 1)) {
     if ($msg.message -eq $WM_HOTKEY) {
       $hid = $msg.wParam.ToInt32()
-      if ($hid -eq 1) { $queue.Add('up'); Write-Host "up" -ForegroundColor Yellow }
-      elseif ($hid -eq 2) { $queue.Add('down'); Write-Host "down" -ForegroundColor Yellow }
+      if ($hid -eq 1) { if ($script:cmode) { $cq.Add('up') } else { $queue.Add('up') }; Write-Host "up" -ForegroundColor Yellow }
+      elseif ($hid -eq 2) { if ($script:cmode) { $cq.Add('down') } else { $queue.Add('down') }; Write-Host "down" -ForegroundColor Yellow }
     }
   }
   if ($ctxTask.Wait(50)) {
@@ -372,6 +385,12 @@ while ($ws.State -eq 'Open') {
       elseif ($path -eq '/dial') { $b = $body.Trim(); if ($b -match '^\+1\d{10}$') { Dial $b; Write-Host "dial $b" -ForegroundColor Cyan } }
       elseif ($path -eq '/hangup') { HangUp; Write-Host "hangup" -ForegroundColor Magenta }
       elseif ($path -eq '/newconv') { NewConv; Write-Host "new conv (Alt+N)" -ForegroundColor Cyan }
+      elseif ($path -eq '/pd-start') { $out = (PdStart); Write-Host "pd-start $out" -ForegroundColor Cyan }
+      elseif ($path -eq '/pd-pause') { $out = (PdPauseSession); Write-Host "pd-pause $out" -ForegroundColor Cyan }
+      elseif ($path -eq '/pd-skip')  { $out = (PdSkip); Write-Host "pd-skip $out" -ForegroundColor Magenta }
+      elseif ($path -eq '/pd-text')  { $out = (PdSendCurrent $body); Write-Host "pd-text $out" -ForegroundColor Green }
+      elseif ($path -eq '/cmode')    { $script:cmode = ($body.Trim() -eq 'on'); Write-Host "campaign-mode $($script:cmode)" -ForegroundColor Yellow }
+      elseif ($path -eq '/cpoll')    { $out = ($cq -join ','); $cq.Clear() }
       elseif ($path -eq '/text') { try { $o = $body | ConvertFrom-Json; if ($o.number -match '^\+1\d{10}$') { $out = (SendText $o.number $o.message) } else { $out = 'bad number' } } catch { $out = 'text error' } }
       $ctx.Response.Headers.Add('Access-Control-Allow-Origin', '*')
       $ctx.Response.ContentType = $ctype
