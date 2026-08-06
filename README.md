@@ -28,7 +28,6 @@ a phone-friendly web control page.
 | `sod-texter.user.js` | Separate userscript: sod / lawn-disease text campaigns |
 | `resolve-multi.user.js` | Separate userscript: resolve Tech Notes with 3+ notes |
 | `texted-split.user.js` | Separate userscript: split leads by texted note (+ A/B breakdown) |
-| `campaign-pipeline.user.js` | Separate userscript: fall-aeration campaign (HubSpot + Aircall Power Dialer) |
 | `start-dialer.bat` | Double-click launcher for the bridge |
 | `bridge.ps1` | Bridge engine: Aircall CDP + web control server + hotkeys |
 | `setup-phone.bat` | Run once **as admin** to allow phone access |
@@ -134,26 +133,8 @@ Each campaign keeps its **own** permanent ledger, so they're tracked separately.
 > Cap defaults to **0** (whole list); set a number for a small test run. Copy ledger exports the
 > full texted list.
 
-## Campaign pipeline (`campaign-pipeline.user.js`)
-
-A **separate app** for the fall-aeration campaign, run through **Aircall's Power Dialer** with the
-lead's **HubSpot** contact open. Install the userscript on HubSpot (`app.hubspot.com`); it's driven
-by the same global keys through the bridge. A small **📣 Campaign Pipeline** panel sits bottom-right.
-
-- **Enter** (while HubSpot is focused) — start / resume the Power Dialer session.
-- **Down = NO ANSWER** — in order: (1) **text** the lead the fall-aeration message through Aircall,
-  (2) in HubSpot, if the contact **has an email** → Email → Sequences → enroll in **"2026 AF CAMP
-  Landon"**; if **no email** → create a task named **"af camp 2"**, then (3) **Skip** to the next
-  call. It only skips *after* the text + HubSpot step finish.
-- **Up = answered** — first press **pauses** the session (so you can talk); **Up again = next call**.
-
-Setup: the dialer bridge must be running (`start-dialer.bat`) and Aircall must be open. The script
-turns on "campaign mode" on the bridge automatically (so Up/Down route here instead of the Bosco
-dialer). Run the Bosco dialer **or** the campaign pipeline, not both at once.
-
-> **v0.1 — needs live tuning.** HubSpot's page is complex; the sequence/task steps use best-effort,
-> text-based selectors and log each step to the console (F12). If a step misses, open the console,
-> note the last `[campaign]` line, and it can be pinned to the exact button.
+> The fall-aeration **campaign pipeline** (HubSpot + Aircall Power Dialer) is now its own app in
+> `dev/AF-Campaign` — it does not run from here.
 
 ## Install / update the userscripts
 
