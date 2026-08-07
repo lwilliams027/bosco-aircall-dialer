@@ -48,11 +48,22 @@ function Dial($num) {
   $js = "(function(n){function fill(t){var i=document.querySelector('[data-test=start-conversation-input]');if(!i){var s=document.querySelector('[data-test=start-conversation],#sidenav-start-conversation');if(s)s.click();if(t<12)return setTimeout(function(){fill(t+1)},250);return;}var d=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;d.call(i,n);i.dispatchEvent(new Event('input',{bubbles:true}));i.focus();var c=0;(function call(){var b=document.querySelector('[data-test=start-call]');if(b&&!b.disabled){b.click();return;}if(c++<25)setTimeout(call,150);})();}fill(0);})('$num');"
   Send-CDP 'Runtime.evaluate' @{ expression = $js }
 }
-function HangUp() {
+function AltQ() {
   Send-CDP 'Input.dispatchKeyEvent' @{ type='keyDown'; key='Alt'; code='AltLeft'; windowsVirtualKeyCode=18; modifiers=0 }
   Send-CDP 'Input.dispatchKeyEvent' @{ type='keyDown'; key='q'; code='KeyQ'; windowsVirtualKeyCode=81; modifiers=1 }
   Send-CDP 'Input.dispatchKeyEvent' @{ type='keyUp'; key='q'; code='KeyQ'; windowsVirtualKeyCode=81; modifiers=1 }
   Send-CDP 'Input.dispatchKeyEvent' @{ type='keyUp'; key='Alt'; code='AltLeft'; windowsVirtualKeyCode=18; modifiers=0 }
+}
+function HangUp() {
+  # click Aircall's hangup/end-call button (reliable across builds); fall back to the Alt+Q shortcut
+  $r = Eval-Result "(function(){var sels=['[data-test=hangup-button]','[aria-label*=Hang]','[aria-label*=End]'];for(var i=0;i<sels.length;i++){try{var b=document.querySelector(sels[i]);if(b&&b.offsetParent!==null&&!b.disabled){b.click();return 'click:'+sels[i];}}catch(e){}}return 'none';})()"
+  if ($r -eq 'none') { AltQ }
+  return $r
+}
+# no-answer: if Aircall is showing its voicemail-drop button, click it (leave the VM); otherwise just hang up
+function VmDropOrHangup() {
+  $r = Eval-Result "(function(){var b=document.querySelector('[data-test=voicemail-drop-send-button]');if(b&&b.offsetParent!==null&&!b.disabled){b.click();return 'vm';}return 'none';})()"
+  if ($r -eq 'vm') { return 'vm' } else { HangUp; return 'hangup' }
 }
 function Eval-Result($js) {
   $script:id++; $myid = $script:id
@@ -371,6 +382,7 @@ while ($ws.State -eq 'Open') {
       elseif ($path -eq '/config') { if ($ctx.Request.HttpMethod -eq 'POST') { $script:config = $body; Write-Host "config saved" -ForegroundColor Cyan } else { $out = $script:config; $ctype = 'application/json' } }
       elseif ($path -eq '/dial') { $b = $body.Trim(); if ($b -match '^\+1\d{10}$') { Dial $b; Write-Host "dial $b" -ForegroundColor Cyan } }
       elseif ($path -eq '/hangup') { HangUp; Write-Host "hangup" -ForegroundColor Magenta }
+      elseif ($path -eq '/vmdrop') { $out = (VmDropOrHangup); Write-Host "vmdrop $out" -ForegroundColor Magenta }
       elseif ($path -eq '/newconv') { NewConv; Write-Host "new conv (Alt+N)" -ForegroundColor Cyan }
       elseif ($path -eq '/text') { try { $o = $body | ConvertFrom-Json; if ($o.number -match '^\+1\d{10}$') { $out = (SendText $o.number $o.message) } else { $out = 'bad number' } } catch { $out = 'text error' } }
       $ctx.Response.Headers.Add('Access-Control-Allow-Origin', '*')
