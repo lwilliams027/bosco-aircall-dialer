@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco Resolve 3+ Notes
 // @namespace    local.sa.resolvemulti
-// @version      1.2
+// @version      1.3
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/resolve-multi.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/resolve-multi.user.js
 // @description  One-off cleanup for Sales Call - Tech Note leads: resolve by 3+ notes, or by Entered date (N+ days old). Preview + confirm, opens each and sets status to Resolved. Never touches other labels.
@@ -57,12 +57,32 @@
 
   // ---- state ----
   let working = false, building = false, list = [];
-  let mode = 'notes', days = 10;
+  let mode = 'notes', days = 10, cat = 'cxl';
+  const CATS = [
+    { key: 'cxl',     label: 'All Cancels (CXL)',    match: (l) => l.type === 'cxl' },
+    { key: 'tech',    label: 'All Tech Notes',       match: (l) => l.type === 'tech' },
+    { key: 'sod',     label: 'All Sod Webworm',      match: (l) => (l.act && l.act.sod) || l.issue === 'sod webworm' },
+    { key: 'disease', label: 'All Leaf/Dollar Spot', match: (l) => (l.act && (l.act.dollar || l.act.leaf)) || l.issue === 'leaf spot' || l.issue === 'dollar spot' },
+    { key: 'moles',   label: 'All Moles',            match: (l) => (l.act && l.act.moles) || l.issue === 'moles' },
+  ];
+  const catOf = () => CATS.find((c) => c.key === cat) || CATS[0];
   let statusMsg = 'Pick a mode, then Build.';
   const setStatus = (s) => { statusMsg = s; };
   const fmtPhone = (raw) => { const d = String(raw || '').replace(/\D/g, ''); return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : d; };
 
-  function build() { return mode === 'notes' ? buildNotes() : buildDays(); }
+  function build() { return mode === 'notes' ? buildNotes() : mode === 'days' ? buildDays() : buildCategory(); }
+
+  // resolve everything in a chosen category (all CXL, all Sod, etc.) — reads the dialer's scan
+  function buildCategory() {
+    const st = readShared();
+    if (!st) { list = []; setStatus('No dialer scan found. In the dialer press f to build the queue, then Build here.'); render(); return; }
+    const seen = new Set(); const c = catOf();
+    list = st.q.filter((l) => l && l.acct && c.match(l) && !isResolved(String(l.acct)))
+      .map((l) => ({ acct: String(l.acct), name: l.name || '(lead)', phone: l.phone || '', detail: (l.type === 'cxl' ? 'CXL' : (l.issue && l.issue !== 'none' ? String(l.issue) : 'tech')) }))
+      .filter((x) => { if (seen.has(x.acct)) return false; seen.add(x.acct); return true; });
+    setStatus(list.length ? `${list.length} in "${c.label}" — review, then Resolve All.` : `None found in "${c.label}".`);
+    render();
+  }
 
   function buildNotes() {
     const st = readShared();
@@ -107,15 +127,16 @@
     if (working) { working = false; return; }          // second click = stop
     if (!list.length) return;
     const todo = list.filter((it) => !it.done);
-    const what = mode === 'notes' ? 'have 3+ notes' : `are ${days}+ days old`;
-    if (!confirm(`Resolve ${todo.length} Tech Notes that ${what}?\n\nEach is opened and set to Resolved. This clears them from the call log. Only Sales Call - Tech Note leads are touched.`)) return;
+    const what = mode === 'notes' ? 'have 3+ notes' : mode === 'days' ? `are ${days}+ days old` : `are in "${catOf().label}"`;
+    const scope = mode === 'category' ? '' : ' Only Sales Call - Tech Note leads are touched.';
+    if (!confirm(`Resolve ${todo.length} leads that ${what}?\n\nEach is opened and set to Resolved (no note). This clears them from the call log.${scope}`)) return;
     working = true; let done = 0, skipped = 0, failed = 0;
     for (const it of todo) {
       if (!working) break;
       setStatus(`Resolving ${done + skipped + failed + 1}/${todo.length} — ${it.name}…`); render();
       const row = await findRow(it.acct);
       if (!row) { it.failed = true; failed++; console.warn('[rm] row not found', it.acct); render(); continue; }
-      if (!isTech(row)) { it.skipped = true; skipped++; render(); await sleep(200); continue; }   // safety: never touch non-tech-notes
+      if (mode !== 'category' && !isTech(row)) { it.skipped = true; skipped++; render(); await sleep(200); continue; }   // tech-only guard (skipped in Category mode)
       const prev = notesSig(); openLeadRow(row); await waitForNotes(prev);
       if (mode === 'notes' && realNotes().length < 3) { it.skipped = true; skipped++; render(); await sleep(300); continue; }
       let ok = false; try { ok = await resolveStatus(); } catch (e) { console.error('[rm]', e); }
@@ -138,11 +159,12 @@
   #rmp .hd .x{cursor:pointer;font-size:16px;opacity:.9}
   #rmp .bd{padding:12px 13px;overflow:auto} #rmp.min .bd{display:none}
   #rmp button{border:0;border-radius:10px;font-weight:800;color:#fff;cursor:pointer;font-family:inherit;padding:12px 8px;font-size:13px;width:100%}
-  #rmp .modes{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
-  #rmp .md{background:#1b2632;color:#9fb4c6;border:1px solid #2a3a48;padding:11px 6px;font-size:13px}
+  #rmp .modes{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:8px}
+  #rmp .md{background:#1b2632;color:#9fb4c6;border:1px solid #2a3a48;padding:11px 3px;font-size:12px}
   #rmp .md.on{background:#c0392b;color:#fff;border-color:#c0392b}
   #rmp .drow{display:flex;align-items:center;gap:7px;margin-bottom:8px;color:#cfe1ef;font-size:12px}
   #rmp .drow input{width:52px;background:#0f1720;border:1px solid #2b3a48;border-radius:7px;color:#fff;padding:6px 8px;font-size:13px;font-weight:800;text-align:center}
+  #rmp .drow select{flex:1;background:#0f1720;border:1px solid #2b3a48;border-radius:7px;color:#fff;padding:7px 8px;font-size:12px;font-weight:700}
   #rmp .scan{background:#22303c;margin-bottom:8px}
   #rmp .go{background:#c0392b;margin-top:9px} #rmp .go:disabled{opacity:.4;cursor:default}
   #rmp .st{margin:6px 0 8px;color:#9fb4c6;font-size:12px;min-height:16px}
@@ -161,13 +183,15 @@
     const pend = list.filter((it) => !it.done).length;
     const busy = working || building;
     panel.innerHTML = `
-      <div class="hd"><b>✅ Resolve Tech Notes</b><span class="x" id="rmmin">–</span></div>
+      <div class="hd"><b>✅ Resolve</b><span class="x" id="rmmin">–</span></div>
       <div class="bd">
         <div class="modes">
           <button class="md ${mode === 'notes' ? 'on' : ''}" data-m="notes" ${busy ? 'disabled' : ''}>3+ Notes</button>
           <button class="md ${mode === 'days' ? 'on' : ''}" data-m="days" ${busy ? 'disabled' : ''}>Days Old</button>
+          <button class="md ${mode === 'category' ? 'on' : ''}" data-m="category" ${busy ? 'disabled' : ''}>Category</button>
         </div>
         ${mode === 'days' ? `<div class="drow">Resolve Tech Notes <input id="rmdays" type="number" min="1" step="1" value="${days}" ${busy ? 'disabled' : ''}> + days old</div>` : ''}
+        ${mode === 'category' ? `<div class="drow">Resolve <select id="rmcat" ${busy ? 'disabled' : ''}>${CATS.map((c) => `<option value="${c.key}" ${c.key === cat ? 'selected' : ''}>${esc(c.label)}</option>`).join('')}</select></div>` : ''}
         <button class="scan" id="rmbuild" ${working ? 'disabled' : ''}>${building ? 'STOP SCAN' : 'BUILD LIST'}</button>
         <div class="st">${esc(statusMsg)}</div>
         <button class="go" id="rmgo" ${(!list.length || building) ? 'disabled' : ''}>${working ? 'STOP' : `RESOLVE ALL (${pend})`}</button>
@@ -180,8 +204,9 @@
         <div class="foot">Already resolved by this tool: ${Object.keys(resolved).length}</div>
       </div>`;
     panel.querySelector('#rmmin').onclick = () => panel.classList.toggle('min');
-    panel.querySelectorAll('.md').forEach((b) => { b.onclick = () => { if (busy) return; mode = b.dataset.m; list = []; setStatus(mode === 'notes' ? 'Build the list of Tech Notes with 3+ notes.' : `Build the list of Tech Notes ${days}+ days old.`); render(); }; });
+    panel.querySelectorAll('.md').forEach((b) => { b.onclick = () => { if (busy) return; mode = b.dataset.m; list = []; setStatus(mode === 'notes' ? 'Build the list of Tech Notes with 3+ notes.' : mode === 'days' ? `Build the list of Tech Notes ${days}+ days old.` : `Build the "${catOf().label}" list.`); render(); }; });
     const dEl = panel.querySelector('#rmdays'); if (dEl) dEl.onchange = (e) => { days = Math.max(1, parseInt(e.target.value, 10) || 10); render(); };
+    const cEl = panel.querySelector('#rmcat'); if (cEl) cEl.onchange = (e) => { cat = e.target.value; list = []; setStatus(`Build the "${catOf().label}" list.`); render(); };
     panel.querySelector('#rmbuild').onclick = build;
     panel.querySelector('#rmgo').onclick = resolveAll;
   }
