@@ -65,6 +65,7 @@ function VmDropOrHangup() {
   $r = Eval-Result "(function(){var b=document.querySelector('[data-test=voicemail-drop-send-button]');if(b&&b.offsetParent!==null&&!b.disabled){b.click();return 'vm';}return 'none';})()"
   if ($r -eq 'vm') { return 'vm' } else { HangUp; return 'hangup' }
 }
+function DialDiag() { return (Eval-Result "(function(){function n(s){return document.querySelectorAll(s).length;}return JSON.stringify({url:location.href,convInput:n('[data-test=start-conversation-input]'),startConv:n('[data-test=start-conversation],#sidenav-start-conversation'),startCall:n('[data-test=start-call]'),hangup:n('[data-test=hangup-button]'),anyPhoneInput:n('input[type=tel],[data-test*=phone],[data-test*=dial],[placeholder*=number i]')});})()") }
 function Eval-Result($js) {
   $script:id++; $myid = $script:id
   $obj = @{ id = $myid; method = 'Runtime.evaluate'; params = @{ expression = $js; awaitPromise = $true; returnByValue = $true } } | ConvertTo-Json -Compress -Depth 8
@@ -384,6 +385,7 @@ while ($ws.State -eq 'Open') {
       elseif ($path -eq '/hangup') { HangUp; Write-Host "hangup" -ForegroundColor Magenta }
       elseif ($path -eq '/vmdrop') { $out = (VmDropOrHangup); Write-Host "vmdrop $out" -ForegroundColor Magenta }
       elseif ($path -eq '/newconv') { NewConv; Write-Host "new conv (Alt+N)" -ForegroundColor Cyan }
+      elseif ($path -eq '/diag') { $out = (DialDiag); Write-Host "diag $out" -ForegroundColor Yellow }
       elseif ($path -eq '/text') { try { $o = $body | ConvertFrom-Json; if ($o.number -match '^\+1\d{10}$') { $out = (SendText $o.number $o.message) } else { $out = 'bad number' } } catch { $out = 'text error' } }
       $ctx.Response.Headers.Add('Access-Control-Allow-Origin', '*')
       $ctx.Response.ContentType = $ctype
