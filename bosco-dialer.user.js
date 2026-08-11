@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco Dialer
 // @namespace    local.sa.dialer
-// @version      5.16
+// @version      5.17
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js
 // @description  Prioritized call queue via a local bridge: dial/hangup, global Up/Down, Esc pause (hang up)/resume (redial), no-answer condition lookup + auto note/resolve, phone control page.
@@ -151,7 +151,6 @@
   }
   const bridgeDial = (num) => bridge('/dial', 'POST', num);
   const bridgeHangup = () => bridge('/hangup', 'POST');
-  const bridgeVmDrop = () => bridge('/vmdrop', 'POST');   // no-answer: click Aircall's voicemail-drop button if present, else hang up
 
   function setNative(el, val) {
     const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
@@ -333,7 +332,7 @@
     if (paused || busy || (callState !== 'ringing' && callState !== 'answered')) return;
     busy = true; const lead = currentLead;
     try {
-      await bridgeVmDrop(); await sleep(500);   // drop the Aircall voicemail if it's showing, else hang up
+      await bridgeHangup(); await sleep(500);   // hang up (Aircall handles its own voicemail)
       const count = noteCount();
       if (count <= 1) { badge(`No answer — logging…`, '#f39c12'); await noAnswerOneNote(); }
       else { badge(`Didn't answer twice — resolving…`, '#f39c12'); await noAnswerMultiNote(); }

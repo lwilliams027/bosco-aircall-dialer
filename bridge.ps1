@@ -49,7 +49,7 @@ function FocusToInput() {
   return (Eval-Result "(function(){return new Promise(function(res){var t=0;(function f(){var i=document.querySelector('[data-test=start-conversation-input]');if(i){i.focus();try{i.click();i.focus();}catch(e){}res('input-ready');return;}var s=document.querySelector('[data-test=start-conversation],#sidenav-start-conversation');if(s)s.click();if(t++<16){setTimeout(f,250);}else res('no-input');})();});})()")
 }
 function ClickCall() {
-  return (Eval-Result "(function(){return new Promise(function(res){var c=0;(function k(){var b=document.querySelector('[data-test=start-call]');if(b&&!b.disabled){b.click();res('called');return;}if(c++<30){setTimeout(k,150);}else res('no-call-btn');})();});})()")
+  return (Eval-Result "(function(){function rc(b){['pointerover','mouseover','pointerdown','mousedown','pointerup','mouseup','click'].forEach(function(t){try{b.dispatchEvent(new MouseEvent(t,{bubbles:true,cancelable:true,view:window}));}catch(e){}});}return new Promise(function(res){var c=0;(function k(){var b=document.querySelector('[data-test=start-call]');if(b&&!b.disabled){rc(b);res('called');return;}if(c++<30){setTimeout(k,150);}else res('no-call-btn');})();});})()")
 }
 function Dial($num) {
   $prep = FocusToInput
@@ -76,14 +76,9 @@ function AltQ() {
 }
 function HangUp() {
   # click Aircall's hangup/end-call button (reliable across builds); fall back to the Alt+Q shortcut
-  $r = Eval-Result "(function(){var sels=['[data-test=hangup-button]','[aria-label*=Hang]','[aria-label*=End]'];for(var i=0;i<sels.length;i++){try{var b=document.querySelector(sels[i]);if(b&&b.offsetParent!==null&&!b.disabled){b.click();return 'click:'+sels[i];}}catch(e){}}return 'none';})()"
+  $r = Eval-Result "(function(){function rc(b){['pointerover','mouseover','pointerdown','mousedown','pointerup','mouseup','click'].forEach(function(t){try{b.dispatchEvent(new MouseEvent(t,{bubbles:true,cancelable:true,view:window}));}catch(e){}});}var sels=['[data-test=hangup-button]','[aria-label*=Hang]','[aria-label*=End]'];for(var i=0;i<sels.length;i++){try{var b=document.querySelector(sels[i]);if(b&&b.offsetParent!==null&&!b.disabled){rc(b);return 'click:'+sels[i];}}catch(e){}}return 'none';})()"
   if ($r -eq 'none') { AltQ }
   return $r
-}
-# no-answer: if Aircall is showing its voicemail-drop button, click it (leave the VM); otherwise just hang up
-function VmDropOrHangup() {
-  $r = Eval-Result "(function(){var b=document.querySelector('[data-test=voicemail-drop-send-button]');if(b&&b.offsetParent!==null&&!b.disabled){b.click();return 'vm';}return 'none';})()"
-  if ($r -eq 'vm') { return 'vm' } else { HangUp; return 'hangup' }
 }
 function DialDiag() { return (Eval-Result "(function(){function n(s){return document.querySelectorAll(s).length;}return JSON.stringify({url:location.href,convInput:n('[data-test=start-conversation-input]'),startConv:n('[data-test=start-conversation],#sidenav-start-conversation'),startCall:n('[data-test=start-call]'),hangup:n('[data-test=hangup-button]'),anyPhoneInput:n('input[type=tel],[data-test*=phone],[data-test*=dial],[placeholder*=number i]')});})()") }
 function Eval-Result($js) {
@@ -404,7 +399,6 @@ while ($ws.State -eq 'Open') {
       elseif ($path -eq '/dial') { $b = $body.Trim(); if ($b -match '^\+1\d{10}$') { $out = (Dial $b) } else { $out = 'bad-number' } }
       elseif ($path -eq '/filltest') { $out = (FillTest) }
       elseif ($path -eq '/hangup') { HangUp; Write-Host "hangup" -ForegroundColor Magenta }
-      elseif ($path -eq '/vmdrop') { $out = (VmDropOrHangup); Write-Host "vmdrop $out" -ForegroundColor Magenta }
       elseif ($path -eq '/newconv') { NewConv; Write-Host "new conv (Alt+N)" -ForegroundColor Cyan }
       elseif ($path -eq '/diag') { $out = (DialDiag); Write-Host "diag $out" -ForegroundColor Yellow }
       elseif ($path -eq '/text') { try { $o = $body | ConvertFrom-Json; if ($o.number -match '^\+1\d{10}$') { $out = (SendText $o.number $o.message) } else { $out = 'bad number' } } catch { $out = 'text error' } }
