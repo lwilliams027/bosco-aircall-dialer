@@ -9,6 +9,9 @@ echo  Connects Aircall to the Bosco call queue.
 echo ================================================================
 echo.
 
+rem --- close any other bridge (they share the global Up/Down keys + Aircall) ---
+powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" | Where-Object { $_.CommandLine -match '-File.*bridge\.ps1' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+
 rem --- already running with the debug port open? then just connect ---
 powershell -NoProfile -Command "try{Invoke-RestMethod http://127.0.0.1:%PORT%/json -TimeoutSec 2 | Out-Null; exit 0}catch{exit 1}"
 if %errorlevel%==0 goto inject
