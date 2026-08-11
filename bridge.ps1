@@ -44,9 +44,29 @@ function NewConv() {
   Send-CDP 'Input.dispatchKeyEvent' @{ type='keyUp'; key='n'; code='KeyN'; windowsVirtualKeyCode=78; modifiers=1 }
   Send-CDP 'Input.dispatchKeyEvent' @{ type='keyUp'; key='Alt'; code='AltLeft'; windowsVirtualKeyCode=18; modifiers=0 }
 }
+function FocusToInput() {
+  # open the New Conversation screen (if needed) and focus the To input; returns 'input-ready' or 'no-input'
+  return (Eval-Result "(function(){return new Promise(function(res){var t=0;(function f(){var i=document.querySelector('[data-test=start-conversation-input]');if(i){i.focus();try{i.click();i.focus();}catch(e){}res('input-ready');return;}var s=document.querySelector('[data-test=start-conversation],#sidenav-start-conversation');if(s)s.click();if(t++<16){setTimeout(f,250);}else res('no-input');})();});})()")
+}
+function ClickCall() {
+  return (Eval-Result "(function(){return new Promise(function(res){var c=0;(function k(){var b=document.querySelector('[data-test=start-call]');if(b&&!b.disabled){b.click();res('called');return;}if(c++<30){setTimeout(k,150);}else res('no-call-btn');})();});})()")
+}
 function Dial($num) {
-  $js = "(function(n){function fill(t){var i=document.querySelector('[data-test=start-conversation-input]');if(!i){var s=document.querySelector('[data-test=start-conversation],#sidenav-start-conversation');if(s)s.click();if(t<12)return setTimeout(function(){fill(t+1)},250);return;}var d=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;d.call(i,n);i.dispatchEvent(new Event('input',{bubbles:true}));i.focus();var c=0;(function call(){var b=document.querySelector('[data-test=start-call]');if(b&&!b.disabled){b.click();return;}if(c++<25)setTimeout(call,150);})();}fill(0);})('$num');"
-  Send-CDP 'Runtime.evaluate' @{ expression = $js }
+  $prep = FocusToInput
+  if ($prep -ne 'input-ready') { Write-Host "[dial] $prep" -ForegroundColor Red; return $prep }
+  Send-CDP 'Input.insertText' @{ text = $num }   # type as real keystrokes so the React input registers it
+  Start-Sleep -Milliseconds 500
+  $r = ClickCall
+  Write-Host "[dial] $num -> $r" -ForegroundColor Cyan
+  return $r
+}
+function FillTest() {
+  # types a fake number into the To box WITHOUT calling, returns the resulting input value
+  $prep = FocusToInput
+  if ($prep -ne 'input-ready') { return $prep }
+  Send-CDP 'Input.insertText' @{ text = '5551234567' }
+  Start-Sleep -Milliseconds 500
+  return (Eval-Result "(function(){var i=document.querySelector('[data-test=start-conversation-input]');return i?('value=['+i.value+']'):'no-input';})()")
 }
 function AltQ() {
   Send-CDP 'Input.dispatchKeyEvent' @{ type='keyDown'; key='Alt'; code='AltLeft'; windowsVirtualKeyCode=18; modifiers=0 }
@@ -381,7 +401,8 @@ while ($ws.State -eq 'Open') {
       elseif ($path -eq '/cmd') { $c = $body.Trim(); if ($c) { $queue.Add($c); Write-Host "cmd $c" -ForegroundColor Yellow } }
       elseif ($path -eq '/state') { if ($ctx.Request.HttpMethod -eq 'POST') { $script:state = $body } else { $out = $script:state; $ctype = 'application/json' } }
       elseif ($path -eq '/config') { if ($ctx.Request.HttpMethod -eq 'POST') { $script:config = $body; Write-Host "config saved" -ForegroundColor Cyan } else { $out = $script:config; $ctype = 'application/json' } }
-      elseif ($path -eq '/dial') { $b = $body.Trim(); if ($b -match '^\+1\d{10}$') { Dial $b; Write-Host "dial $b" -ForegroundColor Cyan } }
+      elseif ($path -eq '/dial') { $b = $body.Trim(); if ($b -match '^\+1\d{10}$') { $out = (Dial $b) } else { $out = 'bad-number' } }
+      elseif ($path -eq '/filltest') { $out = (FillTest) }
       elseif ($path -eq '/hangup') { HangUp; Write-Host "hangup" -ForegroundColor Magenta }
       elseif ($path -eq '/vmdrop') { $out = (VmDropOrHangup); Write-Host "vmdrop $out" -ForegroundColor Magenta }
       elseif ($path -eq '/newconv') { NewConv; Write-Host "new conv (Alt+N)" -ForegroundColor Cyan }
