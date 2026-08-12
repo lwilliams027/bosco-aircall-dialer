@@ -34,15 +34,29 @@ function Get-WsUrl($port) {
   $null
 }
 
+# (re)connect to Aircall's page target; returns $true when the socket is Open. Safe to call repeatedly.
+function Connect-Aircall($port) {
+  $wsUrl = try { Get-WsUrl $port } catch { $null }
+  if (-not $wsUrl) { return $false }
+  try {
+    if ($script:ws) { try { $script:ws.Dispose() } catch {} }
+    $script:ws = [System.Net.WebSockets.ClientWebSocket]::new()
+    $script:ws.ConnectAsync([Uri]$wsUrl, [Threading.CancellationToken]::None).Wait(5000) | Out-Null
+    if ($script:ws.State -eq 'Open') { return $true }
+  } catch {}
+  return $false
+}
+
 Write-Host ""
 Write-Host "==============================================================" -ForegroundColor DarkCyan
 Write-Host "   BOSCO DIALER BRIDGE" -ForegroundColor White
 Write-Host "==============================================================" -ForegroundColor DarkCyan
 Log "Connecting to Aircall on debug port $Port ..." Cyan
-$wsUrl = Get-WsUrl $Port
-if (-not $wsUrl) { throw "No Aircall page found on port $Port  (start Aircall with --remote-debugging-port=$Port)" }
-$ws = [System.Net.WebSockets.ClientWebSocket]::new()
-$ws.ConnectAsync([Uri]$wsUrl, [Threading.CancellationToken]::None).Wait()
+$connectTries = 0
+while (-not (Connect-Aircall $Port)) {
+  if ($connectTries -eq 0) { Log "Waiting for Aircall... (open it with --remote-debugging-port=$Port; use start-dialer.bat)" Yellow }
+  $connectTries++; Start-Sleep -Seconds 2
+}
 Log ("Attached to Aircall page: " + $script:targetUrl) Green
 
 $script:id = 0
@@ -408,7 +422,17 @@ Write-Host "--------------------------------------------------------------" -For
 
 $ctxTask = $listener.GetContextAsync()
 $msg = New-Object Hk+MSG
-while ($ws.State -eq 'Open') {
+$linkDown = $false
+$lastReconnect = Get-Date
+while ($true) {
+  # Aircall reloads/updates itself periodically and drops the socket; reconnect instead of dying.
+  if ($ws.State -ne 'Open') {
+    if (-not $linkDown) { Log ("Aircall link lost (" + $ws.State + ") - reconnecting automatically...") Yellow; $linkDown = $true }
+    if (((Get-Date) - $lastReconnect).TotalSeconds -ge 2) {
+      $lastReconnect = Get-Date
+      if (Connect-Aircall $Port) { Log ("Reconnected to Aircall: " + $script:targetUrl) Green; $linkDown = $false }
+    }
+  }
   while ([Hk]::PeekMessage([ref]$msg, [IntPtr]::Zero, $WM_HOTKEY, $WM_HOTKEY, 1)) {
     if ($msg.message -eq $WM_HOTKEY) {
       $hid = $msg.wParam.ToInt32()
