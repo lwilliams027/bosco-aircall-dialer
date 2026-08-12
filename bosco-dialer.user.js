@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco Dialer
 // @namespace    local.sa.dialer
-// @version      5.17
+// @version      5.18
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js
 // @description  Prioritized call queue via a local bridge: dial/hangup, global Up/Down, Esc pause (hang up)/resume (redial), no-answer condition lookup + auto note/resolve, phone control page.
@@ -119,7 +119,16 @@
     return; // don't run the call-queue UI on the customer/history page
   }
 
+  // Only the Call Log page runs the dialer. Every other bosco.serviceassistant.com tab
+  // (customer details, reports, home) must NOT run a competing copy - multiple copies fight
+  // over the one bridge (they steal each other's Up/Down/START commands and stomp shared state).
+  if (!/\/CallLog/i.test(location.pathname)) {
+    console.log('[bosco-dialer] not the Call Log page - dialer inactive here');
+    return;
+  }
+
   // ================= config =================
+  const SCRIPT_VERSION = '5.18';
   const BRIDGE = 'http://127.0.0.1:8123';
   const SEND_TEXTS = false; // texting removed for now
   const CALLABLE = [
@@ -476,6 +485,7 @@
       const q = sortedQueue();
       const c = currentLead;
       bridge('/state', 'POST', JSON.stringify({
+        v: SCRIPT_VERSION, hb: Date.now(), url: location.pathname,
         left: q.filter((l) => !dialed.has(l.acct)).length, total: q.length, paused: paused, state: callState,
         cur: c ? { name: c.name, phone: c.phone, type: c.type, size: c.size || '', acct: c.acct, notes: c.noteCount || 0, issue: (typeof c.issue === 'string' ? c.issue : ''), services: c.services || [], notesList: c.notesList || [], raw: (typeof c.raw === 'string' ? c.raw : '') } : null,
         queue: q.map((l) => ({ name: l.name, phone: l.phone, type: l.type, size: l.size || '', issue: (typeof l.issue === 'string' ? l.issue : ''), done: dialed.has(l.acct), cur: !!(c && c.acct === l.acct) })),
