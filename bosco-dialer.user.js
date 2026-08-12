@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco Dialer
 // @namespace    local.sa.dialer
-// @version      5.19
+// @version      5.20
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js
 // @description  Prioritized call queue via a local bridge: dial/hangup, global Up/Down, Esc pause (hang up)/resume (redial), no-answer condition lookup + auto note/resolve, phone control page.
@@ -128,7 +128,7 @@
   }
 
   // ================= config =================
-  const SCRIPT_VERSION = '5.19';
+  const SCRIPT_VERSION = '5.20';
   const BRIDGE = 'http://127.0.0.1:8123';
   const SEND_TEXTS = false; // texting removed for now
   const CALLABLE = [
@@ -441,6 +441,10 @@
     const style = document.createElement('style');
     style.textContent = `#sa-panel{position:fixed;top:56px;right:10px;width:250px;max-height:calc(100vh - 76px);z-index:2147483000;background:#fff;color:#222;border:1px solid #ccc;border-radius:10px;box-shadow:0 4px 18px rgba(0,0,0,.25);font:11px/1.35 system-ui,sans-serif;display:flex;flex-direction:column;overflow:hidden;}
       #sa-panel .sa-hd{background:#0E94D2;color:#fff;font-weight:700;padding:6px 10px;font-size:12px;} #sa-panel .sa-body{overflow:auto;padding:5px 8px 10px;}
+      #sa-panel .sa-btns{display:flex;gap:5px;margin:6px 0 4px;}
+      #sa-panel .sa-b{flex:1;border:0;border-radius:6px;padding:8px 4px;font:700 11px system-ui,sans-serif;color:#fff;cursor:pointer;background:#5a6b7a;}
+      #sa-panel .sa-b:active{filter:brightness(1.15);} #sa-panel .sa-b.start{background:#7BBF43;font-size:13px;padding:10px 4px;} #sa-panel .sa-b.scan{background:#0E94D2;}
+      #sa-panel .sa-b.ans{background:#7BBF43;} #sa-panel .sa-b.no{background:#c0392b;} #sa-panel .sa-b.pause{background:#f39c12;}
       #sa-panel .sa-hint{color:#666;margin:3px 0 6px;font-size:10px;} #sa-panel .sa-sec{font-weight:700;margin:8px 0 3px;color:#0E94D2;border-top:1px solid #eee;padding-top:6px;}
       #sa-panel ol.sa-q{margin:0;padding-left:16px;} #sa-panel ol.sa-q li{margin:2px 0;padding:1px 0;} #sa-panel li.done{opacity:.4;text-decoration:line-through;} #sa-panel li.cur{background:#eaf5ff;border-radius:4px;font-weight:600;}
       #sa-panel .chip{display:inline-block;font-size:9px;font-weight:700;color:#fff;border-radius:3px;padding:1px 4px;margin-right:3px;} #sa-panel .chip.tech{background:#7BBF43;} #sa-panel .chip.cxl{background:#c0392b;}
@@ -457,7 +461,9 @@
   function renderPanel() {
     const p = ensurePanel(); const q = sortedQueue(); const left = q.filter((l) => !dialed.has(l.acct)).length;
     p.querySelector('.sa-hd').firstChild.textContent = `Call Queue — ${left} left / ${q.length}${paused ? ' (PAUSED)' : ''}`;
-    let h = '<div class="sa-hint">▲ answered · ▼ no answer · Esc pause · f scan · Enter start</div><div class="sa-sec">To call (in order)</div><ol class="sa-q">';
+    let h = '<div class="sa-btns"><button id="sa-start" class="sa-b start">▶ START</button><button id="sa-scan" class="sa-b scan">⟳ Scan</button></div>'
+      + '<div class="sa-btns"><button id="sa-ans" class="sa-b ans">▲ Answered</button><button id="sa-no" class="sa-b no">▼ No answer</button><button id="sa-pause" class="sa-b pause">' + (paused ? '▶ Resume' : '⏸ Pause') + '</button></div>'
+      + '<div class="sa-hint">or keys: ▲ ▼ · Esc pause · f scan · Enter start</div><div class="sa-sec">To call (in order)</div><ol class="sa-q">';
     q.forEach((l) => { const cur = currentLead && l.acct === currentLead.acct; const cls = (dialed.has(l.acct) ? 'done ' : '') + (cur ? 'cur' : '');
       let iss = ''; if (l.type === 'tech') { if (l.issue === null) iss = '<span class="iss">…</span>'; else if (typeof l.issue === 'string' && l.issue !== 'none') iss = `<span class="iss">${esc(l.issue)}</span>`; }
       const sz = l.size ? `<span class="sz">${esc(l.size)}</span>` : '';
@@ -467,6 +473,13 @@
     h += `<div class="sa-sec">Log — not calling (${others.length})</div>`;
     Object.keys(groups).sort().forEach((lab) => { h += `<div class="glab">${esc(lab || '(no label)')} — ${groups[lab].length}</div>`; groups[lab].forEach((o) => { h += `<div class="orow">${esc(o.name)} <span class="ph">${o.phone}</span></div>`; }); });
     p.querySelector('.sa-body').innerHTML = h;
+    // clickable controls (like the texter's buttons) - immune to keyboard focus / bridge issues
+    const bind = (id, fn) => { const b = p.querySelector(id); if (b) b.onclick = (e) => { e.preventDefault(); console.log('[bosco-dialer] button ' + id + ' clicked'); fn(); }; };
+    bind('#sa-start', () => doRun());
+    bind('#sa-scan', () => scan());
+    bind('#sa-ans', () => onAnswerKey());
+    bind('#sa-no', () => onNoAnswerKey());
+    bind('#sa-pause', () => togglePause());
     saveState();
   }
   function badge(text, bg) {
