@@ -133,7 +133,7 @@
 
   const SCAN_KEY = 'f', START_KEY = 'Enter', ANSWER_KEY = 'ArrowUp', NOANS_KEY = 'ArrowDown', COPY_KEY = 's', CLEAR_KEY = 'c', PAUSE_KEY = 'Escape';
 
-  let running = false, paused = false;
+  let scanning = false, paused = false;
   const callQueue = [], others = [], seenAccts = new Set(), dialed = new Set();
   let callState = 'idle', currentLead = null, busy = false;
   let expandedAcct = null, panelMin = false;
@@ -151,6 +151,7 @@
   }
   const bridgeDial = (num) => bridge('/dial', 'POST', num);
   const bridgeHangup = () => bridge('/hangup', 'POST');
+  const bridgeVmDrop = () => bridge('/vmdrop', 'POST');   // no-answer: click Aircall's voicemail-drop button if present, else hang up
 
   function setNative(el, val) {
     const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
@@ -240,33 +241,36 @@
     return null;
   }
   async function scan() {
-    if (running) { running = false; return; }
-    running = true;
-    const issueMap = {}; callQueue.forEach((l) => { if (l.issue !== undefined) issueMap[l.acct] = l.issue; });
-    callQueue.length = 0; others.length = 0; seenAccts.clear();   // fresh rebuild (keep dialed)
-    const sc = scrollContainer();
-    let idle = 0;
-    while (running) {                                  // keep scrolling until no new leads load (no 50 cap)
-      let didNew = false;
-      for (const row of getRows()) {
-        if (!running) break;
-        const acct = row.dataset.accountnumber || ''; if (seenAccts.has(acct)) continue;
-        didNew = true;
-        const cat = classify(getLabel(row));
-        if (!cat) { seenAccts.add(acct); others.push({ ...leadInfo(row), label: getLabel(row) }); renderPanel(); continue; }
-        const prev = notesSig(); openLead(row); await waitForLoad(prev); seenAccts.add(acct);
-        const tnote = textedNoteText();
-        const lead = { ...leadInfo(row), label: getLabel(row), type: cat.type, noteCount: noteCount(), texted: !!tnote, tnote: tnote };
-        if (issueMap[acct] !== undefined) lead.issue = issueMap[acct];
-        callQueue.push(lead);
-        renderPanel(); badge(`Scanning — queue ${callQueue.length} · log ${others.length} · scanned ${seenAccts.size}`, '#7BBF43'); await sleep(70);
+    if (scanning) { scanning = false; return; }   // pressing scan again stops an in-progress scan
+    scanning = true;
+    try {
+      const issueMap = {}; callQueue.forEach((l) => { if (l.issue !== undefined) issueMap[l.acct] = l.issue; });
+      callQueue.length = 0; others.length = 0; seenAccts.clear();   // fresh rebuild (keep dialed)
+      const sc = scrollContainer();
+      let idle = 0;
+      while (scanning) {                                  // keep scrolling until no new leads load (no 50 cap)
+        let didNew = false;
+        for (const row of getRows()) {
+          if (!scanning) break;
+          const acct = row.dataset.accountnumber || ''; if (seenAccts.has(acct)) continue;
+          didNew = true;
+          const cat = classify(getLabel(row));
+          if (!cat) { seenAccts.add(acct); others.push({ ...leadInfo(row), label: getLabel(row) }); renderPanel(); continue; }
+          const prev = notesSig(); openLead(row); await waitForLoad(prev); seenAccts.add(acct);
+          const tnote = textedNoteText();
+          const lead = { ...leadInfo(row), label: getLabel(row), type: cat.type, noteCount: noteCount(), texted: !!tnote, tnote: tnote };
+          if (issueMap[acct] !== undefined) lead.issue = issueMap[acct];
+          callQueue.push(lead);
+          renderPanel(); badge(`Scanning — queue ${callQueue.length} · log ${others.length} · scanned ${seenAccts.size}`, '#7BBF43'); await sleep(70);
+        }
+        const before = getRows().length;
+        if (sc) sc.scrollTop = sc.scrollHeight; else { const rs = getRows(); if (rs.length) rs[rs.length - 1].scrollIntoView({ block: 'end' }); }
+        await sleep(800);
+        if (!didNew && getRows().length <= before) { idle++; if (idle >= 2) break; } else idle = 0;
       }
-      const before = getRows().length;
-      if (sc) sc.scrollTop = sc.scrollHeight; else { const rs = getRows(); if (rs.length) rs[rs.length - 1].scrollIntoView({ block: 'end' }); }
-      await sleep(800);
-      if (!didNew && getRows().length <= before) { idle++; if (idle >= 2) break; } else idle = 0;
+    } finally {
+      scanning = false; renderPanel();   // ALWAYS clear the scan flag, even if scanning threw - so START can never jam
     }
-    running = false; renderPanel();
     badge(`Scan done — ${callQueue.length} to call, ${others.length} in log.`, '#0E94D2');
     enrichIssues();
   }
@@ -332,7 +336,7 @@
     if (paused || busy || (callState !== 'ringing' && callState !== 'answered')) return;
     busy = true; const lead = currentLead;
     try {
-      await bridgeHangup(); await sleep(500);   // hang up (Aircall handles its own voicemail)
+      await bridgeVmDrop(); await sleep(500);   // drop the Aircall voicemail if it's showing, else hang up
       const count = noteCount();
       if (count <= 1) { badge(`No answer — logging…`, '#f39c12'); await noAnswerOneNote(); }
       else { badge(`Didn't answer twice — resolving…`, '#f39c12'); await noAnswerMultiNote(); }
@@ -340,7 +344,7 @@
     } catch (e) { console.error('[no-answer]', e); badge('No-answer error — F12', '#c0392b'); }
     busy = false; advance();
   }
-  async function doRun() { if (paused || running || callState !== 'idle') return; if (!callQueue.length) await scan(); if (nextUndialed()) startLead(nextUndialed()); else badge(`Nothing callable. ${others.length} in log.`, '#0E94D2'); }
+  async function doRun() { if (paused || scanning || callState !== 'idle') return; if (!callQueue.length) await scan(); if (nextUndialed()) startLead(nextUndialed()); else badge(`Nothing callable. ${others.length} in log.`, '#0E94D2'); }
 
   // ---- history condition lookup (opens the history page in a background tab) ----
   function lookupCondition(acct) {
@@ -453,9 +457,9 @@
     b.style.background = bg || '#0E94D2'; b.textContent = text;
   }
   function copyLog() { if (!others.length) { badge('Log empty — f to scan', '#c0392b'); return; } const text = others.map((o) => `${o.label}\t${o.name}\t${o.e164}`).join('\n'); try { GM_setClipboard(text, 'text'); badge(`Log copied (${others.length})`, '#0E94D2'); } catch (e) { console.log(text); } }
-  function clearAll() { callQueue.length = 0; others.length = 0; seenAccts.clear(); dialed.clear(); running = false; busy = false; paused = false; callState = 'idle'; currentLead = null; try { GM_setValue(STORE_KEY, null); } catch (e) {} const p = document.getElementById('sa-panel'); if (p) p.remove(); badge('Cleared — f to scan', '#0E94D2'); }
+  function clearAll() { callQueue.length = 0; others.length = 0; seenAccts.clear(); dialed.clear(); scanning = false; busy = false; paused = false; callState = 'idle'; currentLead = null; try { GM_setValue(STORE_KEY, null); } catch (e) {} const p = document.getElementById('sa-panel'); if (p) p.remove(); badge('Cleared — f to scan', '#0E94D2'); }
 
-  function stopAll() { running = false; bridgeHangup(); callState = 'idle'; renderPanel(); badge('STOPPED', '#c0392b'); }
+  function stopAll() { scanning = false; bridgeHangup(); callState = 'idle'; renderPanel(); badge('STOPPED', '#c0392b'); }
   function handleCmd(cmd) {
     if (cmd === 'pause') { togglePause(); return; }
     if (cmd === 'hold') { toggleHold(); return; }

@@ -16,17 +16,34 @@ public class Hk {
 }
 "@
 
-function Get-WsUrl($port) {
-  $t = Invoke-RestMethod "http://127.0.0.1:$port/json" -TimeoutSec 4
-  ($t | Where-Object { $_.type -eq 'page' -and $_.webSocketDebuggerUrl } | Select-Object -First 1).webSocketDebuggerUrl
+# timestamped, color-coded log line for the bridge window (also appended to a log file for diagnostics)
+$script:LogFile = Join-Path $env:TEMP 'sa-bridge.log'
+function Log($msg, $color = 'Gray') {
+  $line = (Get-Date).ToString('HH:mm:ss') + '  ' + $msg
+  Write-Host $line -ForegroundColor $color
+  try { Add-Content -Path $script:LogFile -Value $line -ErrorAction SilentlyContinue } catch {}
 }
 
-Write-Host "Connecting to Aircall on port $Port ..." -ForegroundColor Cyan
+function Get-WsUrl($port) {
+  $t = Invoke-RestMethod "http://127.0.0.1:$port/json" -TimeoutSec 4
+  # ignore the DevTools window (it's also a debuggable 'page' target) and lock onto the Aircall app
+  $pages = $t | Where-Object { $_.type -eq 'page' -and $_.webSocketDebuggerUrl -and $_.url -notlike 'devtools://*' -and $_.url -notlike 'chrome://*' }
+  $ac = $pages | Where-Object { $_.url -like '*aircall*' } | Select-Object -First 1
+  if (-not $ac) { $ac = $pages | Select-Object -First 1 }
+  if ($ac) { $script:targetUrl = $ac.url; return $ac.webSocketDebuggerUrl }
+  $null
+}
+
+Write-Host ""
+Write-Host "==============================================================" -ForegroundColor DarkCyan
+Write-Host "   BOSCO DIALER BRIDGE" -ForegroundColor White
+Write-Host "==============================================================" -ForegroundColor DarkCyan
+Log "Connecting to Aircall on debug port $Port ..." Cyan
 $wsUrl = Get-WsUrl $Port
-if (-not $wsUrl) { throw "No Aircall page target on port $Port" }
+if (-not $wsUrl) { throw "No Aircall page found on port $Port  (start Aircall with --remote-debugging-port=$Port)" }
 $ws = [System.Net.WebSockets.ClientWebSocket]::new()
 $ws.ConnectAsync([Uri]$wsUrl, [Threading.CancellationToken]::None).Wait()
-Write-Host "Aircall connected." -ForegroundColor Green
+Log ("Attached to Aircall page: " + $script:targetUrl) Green
 
 $script:id = 0
 function Send-CDP($method, $params) {
@@ -44,30 +61,36 @@ function NewConv() {
   Send-CDP 'Input.dispatchKeyEvent' @{ type='keyUp'; key='n'; code='KeyN'; windowsVirtualKeyCode=78; modifiers=1 }
   Send-CDP 'Input.dispatchKeyEvent' @{ type='keyUp'; key='Alt'; code='AltLeft'; windowsVirtualKeyCode=18; modifiers=0 }
 }
-function FocusToInput() {
-  # open the New Conversation screen (if needed) and focus the To input; returns 'input-ready' or 'no-input'
-  return (Eval-Result "(function(){return new Promise(function(res){var t=0;(function f(){var i=document.querySelector('[data-test=start-conversation-input]');if(i){i.focus();try{i.click();i.focus();}catch(e){}res('input-ready');return;}var s=document.querySelector('[data-test=start-conversation],#sidenav-start-conversation');if(s)s.click();if(t++<16){setTimeout(f,250);}else res('no-input');})();});})()")
-}
-function ClickCall() {
-  return (Eval-Result "(function(){function rc(b){['pointerover','mouseover','pointerdown','mousedown','pointerup','mouseup','click'].forEach(function(t){try{b.dispatchEvent(new MouseEvent(t,{bubbles:true,cancelable:true,view:window}));}catch(e){}});}return new Promise(function(res){var c=0;(function k(){var b=document.querySelector('[data-test=start-call]');if(b&&!b.disabled){rc(b);res('called');return;}if(c++<30){setTimeout(k,150);}else res('no-call-btn');})();});})()")
-}
+# is a call currently up? (the hangup button is only present during an active/ringing call)
+function CallActive() { return ((Eval-Result "(function(){return document.querySelector('[data-test=hangup-button]')?'call':'idle';})()") -eq 'call') }
+# focus AND clear the To box (opening a new conversation first if needed); returns 'input-ready' when ready to type
+function FocusToInput() { return (Eval-Result "(function(){return new Promise(function(res){var t=0;(function f(){var i=document.querySelector('[data-test=start-conversation-input]');if(i){i.focus();try{i.click();i.focus();}catch(e){}try{var d=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;d.call(i,'');i.dispatchEvent(new Event('input',{bubbles:true}));}catch(e){}i.focus();res('input-ready');return;}var s=document.querySelector('[data-test=start-conversation],#sidenav-start-conversation');if(s)s.click();if(t++<16){setTimeout(f,250);}else res('no-input');})();});})()") }
+# click Aircall's Call button once it's enabled; on failure report WHY (absent / disabled / still on a call)
+function ClickCall() { return (Eval-Result "(function(){return new Promise(function(res){var c=0;(function k(){var b=document.querySelector('[data-test=start-call]');if(b&&!b.disabled){b.click();res('called');return;}if(c++<40){setTimeout(k,150);}else{var d=document.querySelector('[data-test=start-call]');var inCall=document.querySelector('[data-test=hangup-button]')?',still-in-call':'';res((d?'call-btn-disabled':'no-call-btn')+inCall);}})();});})()") }
 function Dial($num) {
+  # new Aircall build: the To box is a React input that ignores the value-setter, so type real keystrokes via CDP Input.insertText
+  Log "DIAL  $num" White
+  # end any leftover call from the previous lead first - Aircall won't show a Call button while one is active
+  if (CallActive) { Log "  .  previous call still up - hanging up first" DarkGray; HangUp | Out-Null; Start-Sleep -Milliseconds 900 }
   $prep = FocusToInput
-  if ($prep -ne 'input-ready') { Write-Host "[dial] $prep" -ForegroundColor Red; return $prep }
-  Send-CDP 'Input.insertText' @{ text = $num }   # type as real keystrokes so the React input registers it
+  if ($prep -ne 'input-ready') { Log "  x  could not focus To box ($prep) - is the Aircall dial panel open?" Red; return $prep }
+  Log "  .  To box ready - typing number" DarkGray
+  Send-CDP 'Input.insertText' @{ text = $num }
   Start-Sleep -Milliseconds 500
   $r = ClickCall
-  Write-Host "[dial] $num -> $r" -ForegroundColor Cyan
+  if ($r -eq 'called') { Log "  OK calling $num" Green } else { Log "  x  Call button not clickable ($r)" Red }
   return $r
 }
+# type a fake number into the To box WITHOUT calling; returns the resulting input value (diagnostic)
 function FillTest() {
-  # types a fake number into the To box WITHOUT calling, returns the resulting input value
   $prep = FocusToInput
-  if ($prep -ne 'input-ready') { return $prep }
+  if ($prep -ne 'input-ready') { return "focus:$prep" }
   Send-CDP 'Input.insertText' @{ text = '5551234567' }
   Start-Sleep -Milliseconds 500
-  return (Eval-Result "(function(){var i=document.querySelector('[data-test=start-conversation-input]');return i?('value=['+i.value+']'):'no-input';})()")
+  return (Eval-Result "(function(){var i=document.querySelector('[data-test=start-conversation-input]');return i?('value=['+i.value+'] active='+(document.activeElement===i)):'no-input';})()")
 }
+# report what the bridge's attached page currently sees (diagnostic)
+function DialDiag() { return (Eval-Result "(function(){function n(s){return document.querySelectorAll(s).length;}return JSON.stringify({url:location.href,inCall:!!document.querySelector('[data-test=hangup-button]'),convInput:n('[data-test=start-conversation-input]'),startConv:n('[data-test=start-conversation],#sidenav-start-conversation'),startCall:n('[data-test=start-call]')});})()") }
 function AltQ() {
   Send-CDP 'Input.dispatchKeyEvent' @{ type='keyDown'; key='Alt'; code='AltLeft'; windowsVirtualKeyCode=18; modifiers=0 }
   Send-CDP 'Input.dispatchKeyEvent' @{ type='keyDown'; key='q'; code='KeyQ'; windowsVirtualKeyCode=81; modifiers=1 }
@@ -76,11 +99,15 @@ function AltQ() {
 }
 function HangUp() {
   # click Aircall's hangup/end-call button (reliable across builds); fall back to the Alt+Q shortcut
-  $r = Eval-Result "(function(){function rc(b){['pointerover','mouseover','pointerdown','mousedown','pointerup','mouseup','click'].forEach(function(t){try{b.dispatchEvent(new MouseEvent(t,{bubbles:true,cancelable:true,view:window}));}catch(e){}});}var sels=['[data-test=hangup-button]','[aria-label*=Hang]','[aria-label*=End]'];for(var i=0;i<sels.length;i++){try{var b=document.querySelector(sels[i]);if(b&&b.offsetParent!==null&&!b.disabled){rc(b);return 'click:'+sels[i];}}catch(e){}}return 'none';})()"
-  if ($r -eq 'none') { AltQ }
+  $r = Eval-Result "(function(){var sels=['[data-test=hangup-button]','[aria-label*=Hang]','[aria-label*=End]'];for(var i=0;i<sels.length;i++){try{var b=document.querySelector(sels[i]);if(b&&b.offsetParent!==null&&!b.disabled){b.click();return 'click:'+sels[i];}}catch(e){}}return 'none';})()"
+  if ($r -eq 'none') { AltQ; Log "HANGUP (no button found - sent Alt+Q)" Magenta } else { Log "HANGUP ($r)" Magenta }
   return $r
 }
-function DialDiag() { return (Eval-Result "(function(){function n(s){return document.querySelectorAll(s).length;}return JSON.stringify({url:location.href,convInput:n('[data-test=start-conversation-input]'),startConv:n('[data-test=start-conversation],#sidenav-start-conversation'),startCall:n('[data-test=start-call]'),hangup:n('[data-test=hangup-button]'),anyPhoneInput:n('input[type=tel],[data-test*=phone],[data-test*=dial],[placeholder*=number i]')});})()") }
+# no-answer: if Aircall is showing its voicemail-drop button, click it (leave the VM); otherwise just hang up
+function VmDropOrHangup() {
+  $r = Eval-Result "(function(){var b=document.querySelector('[data-test=voicemail-drop-send-button]');if(b&&b.offsetParent!==null&&!b.disabled){b.click();return 'vm';}return 'none';})()"
+  if ($r -eq 'vm') { return 'vm' } else { HangUp; return 'hangup' }
+}
 function Eval-Result($js) {
   $script:id++; $myid = $script:id
   $obj = @{ id = $myid; method = 'Runtime.evaluate'; params = @{ expression = $js; awaitPromise = $true; returnByValue = $true } } | ConvertTo-Json -Compress -Depth 8
@@ -99,9 +126,10 @@ function Eval-Result($js) {
 function SendText($num, $msg) {
   $nJson = ($num | ConvertTo-Json); $mJson = ($msg | ConvertTo-Json)
   $js = "(function(n,m){var q=function(s){return document.querySelector(s);};function setV(el,v){var p=el.tagName==='TEXTAREA'?window.HTMLTextAreaElement.prototype:window.HTMLInputElement.prototype;var d=Object.getOwnPropertyDescriptor(p,'value').set;d.call(el,'');el.dispatchEvent(new Event('input',{bubbles:true}));d.call(el,v);el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));}function wait(ms){return new Promise(function(r){setTimeout(r,ms);});}return new Promise(function(resolve){(async function(){var steps=[];var sc=q('#sidenav-start-conversation,[data-test=start-conversation]');if(sc){sc.click();steps.push('opened');}else{steps.push('no-open-btn');}var input=null;for(var k=0;k<24&&!input;k++){await wait(250);input=q('[data-test=start-conversation-input]');}if(!input){resolve('FAIL: no To input | '+steps.join(','));return;}steps.push('input-ok');setV(input,n);input.focus();await wait(1000);var msg=q('[data-test=start-message]');for(var i=0;i<24&&(!msg||msg.disabled);i++){await wait(200);msg=q('[data-test=start-message]');}if(!msg){resolve('FAIL: no Message btn | '+steps.join(','));return;}steps.push('msgbtn(disabled='+msg.disabled+')');msg.click();await wait(1000);var ta=null;for(var j=0;j<24&&!ta;j++){await wait(200);ta=q('[data-test=send-message-input]');}if(!ta){resolve('FAIL: no textarea | '+steps.join(','));return;}steps.push('textarea-ok');setV(ta,m);ta.focus();await wait(600);var send=q('[data-test=send-message],[aria-label*=Send]');for(var h=0;h<24&&(!send||send.disabled);h++){await wait(200);send=q('[data-test=send-message],[aria-label*=Send]');}if(!send){resolve('FAIL: no Send btn | '+steps.join(','));return;}steps.push('sendbtn(disabled='+send.disabled+')');send.click();resolve('SENT | '+steps.join(','));})();});})($nJson,$mJson);"
+  Log "TEXT  $num" White
   $r = Eval-Result $js
   Start-Sleep -Milliseconds 800; NewConv; Start-Sleep -Milliseconds 400; NewConv   # after texting, Alt+N twice to reset to a clean dial screen
-  Write-Host "[text] $num -> $r" -ForegroundColor Green
+  if ($r -like 'SENT*') { Log "  OK text sent" Green } else { Log "  x  $r" Red }
   return $r
 }
 
@@ -359,21 +387,24 @@ $WM_HOTKEY = 0x0312
 $listener = New-Object System.Net.HttpListener
 $bound = $false
 foreach ($p in @("http://+:$WebPort/", "http://127.0.0.1:$WebPort/")) {
-  try { $listener.Prefixes.Clear(); $listener.Prefixes.Add($p); $listener.Start(); $bound = $true; Write-Host "Listening on $p" -ForegroundColor Green; break } catch {}
+  try { $listener.Prefixes.Clear(); $listener.Prefixes.Add($p); $listener.Start(); $bound = $true; Log "Web server listening on $p" Green; break } catch {}
 }
 if (-not $bound) { throw "Could not start the web server on port $WebPort" }
 $lanOnly = ($listener.Prefixes -join '') -like '*127.0.0.1*'
-if ($lanOnly) { Write-Host "NOTE: localhost only - run setup-phone.bat as admin once to enable phone access." -ForegroundColor Yellow }
+if ($lanOnly) { Log "NOTE: localhost only - run setup-phone.bat as admin once to enable phone access." Yellow }
 else {
   $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } | Select-Object -First 1).IPAddress
-  Write-Host "PHONE CONTROL:  http://$ip`:$WebPort/   (same Wi-Fi)" -ForegroundColor Cyan
+  Log "PHONE CONTROL:  http://$ip`:$WebPort/   (same Wi-Fi)" Cyan
 }
 
 $queue = New-Object System.Collections.Generic.List[string]
 $queue.Add('run')
 $script:state = '{}'
 $script:config = '{}'
-Write-Host "Bridge ready. Up = answered, Down = no answer. Leave this window open." -ForegroundColor Green
+Write-Host "--------------------------------------------------------------" -ForegroundColor DarkCyan
+Log "Bridge ready.  Up = answered   Down = no answer.  Leave this window open." Green
+Log "(dial / hangup / text / key presses will appear below)" DarkGray
+Write-Host "--------------------------------------------------------------" -ForegroundColor DarkCyan
 
 $ctxTask = $listener.GetContextAsync()
 $msg = New-Object Hk+MSG
@@ -381,8 +412,8 @@ while ($ws.State -eq 'Open') {
   while ([Hk]::PeekMessage([ref]$msg, [IntPtr]::Zero, $WM_HOTKEY, $WM_HOTKEY, 1)) {
     if ($msg.message -eq $WM_HOTKEY) {
       $hid = $msg.wParam.ToInt32()
-      if ($hid -eq 1) { $queue.Add('up'); Write-Host "up" -ForegroundColor Yellow }
-      elseif ($hid -eq 2) { $queue.Add('down'); Write-Host "down" -ForegroundColor Yellow }
+      if ($hid -eq 1) { $queue.Add('up'); Log "KEY  Up   -> ANSWERED" Yellow }
+      elseif ($hid -eq 2) { $queue.Add('down'); Log "KEY  Down -> NO ANSWER" Yellow }
     }
   }
   if ($ctxTask.Wait(50)) {
@@ -393,24 +424,32 @@ while ($ws.State -eq 'Open') {
       if ($ctx.Request.HasEntityBody) { $body = (New-Object IO.StreamReader($ctx.Request.InputStream)).ReadToEnd() }
       if ($path -eq '/' -or $path -eq '/index.html') { $out = $PAGE; $ctype = 'text/html; charset=utf-8' }
       elseif ($path -eq '/poll') { $out = ($queue -join ','); $queue.Clear() }
-      elseif ($path -eq '/cmd') { $c = $body.Trim(); if ($c) { $queue.Add($c); Write-Host "cmd $c" -ForegroundColor Yellow } }
+      elseif ($path -eq '/cmd') { $c = $body.Trim(); if ($c) { $queue.Add($c); Log "CMD  $c" Yellow } }
       elseif ($path -eq '/state') { if ($ctx.Request.HttpMethod -eq 'POST') { $script:state = $body } else { $out = $script:state; $ctype = 'application/json' } }
-      elseif ($path -eq '/config') { if ($ctx.Request.HttpMethod -eq 'POST') { $script:config = $body; Write-Host "config saved" -ForegroundColor Cyan } else { $out = $script:config; $ctype = 'application/json' } }
-      elseif ($path -eq '/dial') { $b = $body.Trim(); if ($b -match '^\+1\d{10}$') { $out = (Dial $b) } else { $out = 'bad-number' } }
-      elseif ($path -eq '/filltest') { $out = (FillTest) }
-      elseif ($path -eq '/hangup') { HangUp; Write-Host "hangup" -ForegroundColor Magenta }
-      elseif ($path -eq '/newconv') { NewConv; Write-Host "new conv (Alt+N)" -ForegroundColor Cyan }
-      elseif ($path -eq '/diag') { $out = (DialDiag); Write-Host "diag $out" -ForegroundColor Yellow }
-      elseif ($path -eq '/text') { try { $o = $body | ConvertFrom-Json; if ($o.number -match '^\+1\d{10}$') { $out = (SendText $o.number $o.message) } else { $out = 'bad number' } } catch { $out = 'text error' } }
+      elseif ($path -eq '/config') { if ($ctx.Request.HttpMethod -eq 'POST') { $script:config = $body; Log "config saved" Cyan } else { $out = $script:config; $ctype = 'application/json' } }
+      elseif ($path -eq '/dial') { $b = $body.Trim(); if ($b -match '^\+1\d{10}$') { $out = (Dial $b) } else { Log "DIAL rejected - not a +1########## number: [$b]" Red; $out = 'bad-number' } }
+      elseif ($path -eq '/hangup') { $out = (HangUp) }
+      elseif ($path -eq '/vmdrop') { $out = (VmDropOrHangup) }
+      elseif ($path -eq '/newconv') { NewConv; Log "RESET (Alt+N new conversation)" DarkGray }
+      elseif ($path -eq '/filltest') { $out = (FillTest); Log "FILLTEST -> $out" Yellow }
+      elseif ($path -eq '/diag') { $out = (DialDiag); Log "DIAG $out" Yellow }
+      elseif ($path -eq '/text') { try { $o = $body | ConvertFrom-Json; if ($o.number -match '^\+1\d{10}$') { $out = (SendText $o.number $o.message) } else { Log "TEXT rejected bad number: [$($o.number)]" Red; $out = 'bad number' } } catch { Log "TEXT error: $($_.Exception.Message)" Red; $out = 'text error' } }
       $ctx.Response.Headers.Add('Access-Control-Allow-Origin', '*')
       $ctx.Response.ContentType = $ctype
       $bytes = [Text.Encoding]::UTF8.GetBytes([string]$out)
       $ctx.Response.OutputStream.Write($bytes, 0, $bytes.Length); $ctx.Response.Close()
-    } catch {}
+    } catch {
+      # ignore benign client-disconnects (browser closed the poll before we replied); log only real errors
+      $em = $_.Exception.Message
+      if ($em -notlike '*nonexistent network connection*' -and $em -notlike '*I/O operation has been aborted*' -and $path -ne '/poll' -and $path -ne '/state') {
+        Log ("http error on " + $path + ": " + $em) DarkGray
+      }
+    }
     $ctxTask = $listener.GetContextAsync()
   }
 }
+Log ("Aircall connection dropped (ws state: " + $ws.State + ") - restart Aircall + this bridge.") Red
 [Hk]::UnregisterHotKey([IntPtr]::Zero, 1) | Out-Null
 [Hk]::UnregisterHotKey([IntPtr]::Zero, 2) | Out-Null
 $listener.Stop()
-Write-Host "Stopped." -ForegroundColor Red
+Log "Bridge stopped." Red
