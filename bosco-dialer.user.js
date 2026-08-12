@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bosco Dialer
 // @namespace    local.sa.dialer
-// @version      5.18
+// @version      5.19
 // @updateURL    https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js
 // @downloadURL  https://raw.githubusercontent.com/lwilliams027/bosco-aircall-dialer/main/bosco-dialer.user.js
 // @description  Prioritized call queue via a local bridge: dial/hangup, global Up/Down, Esc pause (hang up)/resume (redial), no-answer condition lookup + auto note/resolve, phone control page.
@@ -128,7 +128,7 @@
   }
 
   // ================= config =================
-  const SCRIPT_VERSION = '5.18';
+  const SCRIPT_VERSION = '5.19';
   const BRIDGE = 'http://127.0.0.1:8123';
   const SEND_TEXTS = false; // texting removed for now
   const CALLABLE = [
@@ -306,6 +306,7 @@
     lead.noteCount = noteCount();   // refresh (notes may have changed since last scan)
     lead.notesList = scrapeNotesList();   // capture the account's notes for the control page
     row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    console.log('[bosco-dialer] startLead -> dialing', lead.name, lead.e164, '(bridge /dial)');
     bridgeDial(lead.e164); callState = 'ringing'; renderPanel();
     badge(`RINGING ${lead.name} ${lead.phone} [${lead.type.toUpperCase()}] · ${lead.noteCount} note(s)\n▲ = answered   ▼ = no answer`, '#7BBF43');
   }
@@ -353,7 +354,14 @@
     } catch (e) { console.error('[no-answer]', e); badge('No-answer error — F12', '#c0392b'); }
     busy = false; advance();
   }
-  async function doRun() { if (paused || scanning || callState !== 'idle') return; if (!callQueue.length) await scan(); if (nextUndialed()) startLead(nextUndialed()); else badge(`Nothing callable. ${others.length} in log.`, '#0E94D2'); }
+  async function doRun() {
+    console.log('[bosco-dialer] START pressed | paused=%s scanning=%s callState=%s queue=%s v=%s', paused, scanning, callState, callQueue.length, SCRIPT_VERSION);
+    if (paused || scanning || callState !== 'idle') { console.log('[bosco-dialer] START IGNORED - busy (paused/scanning/onCall). Press f to rescan or Esc to unpause.'); badge('Can’t start: ' + (paused ? 'paused (Esc)' : scanning ? 'still scanning (wait / press f)' : 'on a call'), '#c0392b'); return; }
+    if (!callQueue.length) { console.log('[bosco-dialer] queue empty -> scanning first'); await scan(); }
+    const nx = nextUndialed();
+    console.log('[bosco-dialer] nextUndialed ->', nx ? (nx.name + ' ' + nx.e164) : 'NONE (all dialed or queue empty)');
+    if (nx) startLead(nx); else badge(`Nothing callable. ${others.length} in log.`, '#0E94D2');
+  }
 
   // ---- history condition lookup (opens the history page in a background tab) ----
   function lookupCondition(acct) {
@@ -502,10 +510,14 @@
   setInterval(async () => { const txt = await bridge('/poll'); if (txt == null) { setBridge(false); return; } setBridge(true); txt.split(',').map((s) => s.trim()).filter(Boolean).forEach(handleCmd); }, 350);
 
   document.addEventListener('keydown', (e) => {
-    const t = e.target; if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) {
+      if (e.key === START_KEY) console.log('[bosco-dialer] Enter ignored - focus is in a text box (' + t.tagName + '). Click empty space on the page first, then press Enter.');
+      return;
+    }
     const k = e.key;
     if (k === SCAN_KEY) { e.preventDefault(); scan(); }
-    else if (k === START_KEY) { e.preventDefault(); doRun(); }
+    else if (k === START_KEY) { e.preventDefault(); console.log('[bosco-dialer] Enter/START key received'); doRun(); }
     else if (k === ANSWER_KEY) { e.preventDefault(); onAnswerKey(); }
     else if (k === NOANS_KEY) { e.preventDefault(); onNoAnswerKey(); }
     else if (k === 'r' || k === 'R') { e.preventDefault(); onResolve(); }
@@ -515,6 +527,7 @@
     else if (k === PAUSE_KEY) { e.preventDefault(); togglePause(); }
   }, true);
 
+  console.log('%c[bosco-dialer] v' + SCRIPT_VERSION + ' loaded on ' + location.pathname, 'color:#7BBF43;font-weight:bold');
   if (loadState()) { renderPanel(); badge(`Loaded saved queue — ${callQueue.filter((l) => !dialed.has(l.acct)).length} to call, ${dialed.size} done.\nauto/Enter = call · f = rescan · ▲/▼ · Esc pause`, '#0E94D2'); }
   else badge('Ready — waiting for bridge (run the .bat).\n▲ answered · ▼ no answer · Esc pause', '#0E94D2');
 })();
